@@ -1,0 +1,40 @@
+# ── Python ────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+*.egg
+dist/
+build/
+*.spec
+
+# ── Virtual environments ─────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Environment & secrets ────────────────────────────────────────────
+.env
+*.pem
+*.key
+
+# ── IDE / Editor ─────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Whisper model cache (large binaries) ─────────────────────────────
+whisper_models/
+
+# ── Temp files from processing pipeline ──────────────────────────────
+lc_audio_*.wav
+*.tmp
+
+# ── PyInstaller / PyArmor artifacts ──────────────────────────────────
+*.manifest
+*.log
+pyarmor_runtime_*/

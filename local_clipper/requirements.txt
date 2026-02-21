@@ -1,0 +1,23 @@
+# Local Clipper — Pinned Dependencies
+# Python 3.10+
+
+# ── GUI ──────────────────────────────────────────────────────────────
+customtkinter==5.2.1
+Pillow==10.4.0
+
+# ── Video / Audio Engine ─────────────────────────────────────────────
+moviepy==1.0.3
+ffmpeg-python==0.2.0
+imageio[ffmpeg]==2.34.0
+
+# ── AI Transcription ─────────────────────────────────────────────────
+faster-whisper==1.0.3
+ctranslate2==4.4.0
+
+# ── Networking & Security ────────────────────────────────────────────
+requests==2.32.3
+python-dotenv==1.0.1
+
+# ── Packaging (install separately in build env) ─────────────────────
+# pyinstaller==6.9.0
+# pyarmor==8.5.11
