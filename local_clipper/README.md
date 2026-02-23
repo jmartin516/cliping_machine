@@ -6,6 +6,26 @@ Select a video, pick a Whisper model, and CustosAI Clipper handles the rest: aud
 
 ---
 
+## ⚠️ macOS: Ventana en blanco
+
+Si la app abre pero la ventana está vacía (gris oscuro sin botones ni texto), es porque tu Python usa **Tk 8.5**. CustomTkinter necesita **Tk 8.6+**.
+
+**Solución:**
+
+```bash
+brew install python@3.11 python-tk@3.11
+cd local_clipper
+rm -rf .venv
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python main.py
+```
+
+La app detecta Tk 8.5 al arrancar y mostrará estas instrucciones si es necesario.
+
+---
+
 ## Features
 
 - **AI Transcription** — Powered by [faster-whisper](https://github.com/SYSTRAN/faster-whisper) running locally. No cloud API, no data leaves your machine.
@@ -42,32 +62,55 @@ local_clipper/
 
 ## Requirements
 
-- **Python 3.10+**
-- **FFmpeg** — must be available on your system `PATH`.
-  - macOS: `brew install ffmpeg`
-  - Windows: download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH.
-- **(Optional) NVIDIA GPU** with CUDA toolkit for GPU-accelerated transcription.
+- **Python 3.10+** (3.11+ recommended on macOS for proper GUI rendering)
+- **FFmpeg** — must be available on your system `PATH`
+- **(Optional) NVIDIA GPU** with CUDA toolkit for GPU-accelerated transcription
+
+> **macOS users:** The system Python (3.9) ships with Tk 8.5, which does not render CustomTkinter correctly. Use Python from Homebrew for best results:
+> ```bash
+> brew install python@3.11 python-tk@3.11
+> ```
 
 ---
 
 ## Installation
 
+### 1. Prerequisites
+
+**FFmpeg** (required for video processing):
+
+- **macOS:** `brew install ffmpeg`
+- **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH
+
+### 2. Clone and setup
+
 ```bash
-# 1. Clone the repository
 git clone https://github.com/your-org/local_clipper.git
 cd local_clipper
+```
 
-# 2. Create a virtual environment
+### 3. Create virtual environment
+
+```bash
+# Create venv (use python3.11 on macOS if you installed via Homebrew)
 python -m venv .venv
-source .venv/bin/activate        # macOS / Linux
-# .venv\Scripts\activate         # Windows
 
-# 3. Install dependencies
+# Activate
+source .venv/bin/activate   # macOS / Linux
+# .venv\Scripts\activate    # Windows
+```
+
+### 4. Install dependencies
+
+```bash
 pip install -r requirements.txt
+```
 
-# 4. Configure environment
+### 5. Configure environment (optional)
+
+```bash
 cp .env.example .env
-# Edit .env and set your WHOP_API_KEY
+# Edit .env and set WHOP_API_KEY for license validation
 ```
 
 ---
@@ -77,6 +120,8 @@ cp .env.example .env
 ```bash
 python main.py
 ```
+
+The app suppresses common warnings (urllib3/OpenSSL, Tk deprecation) automatically.
 
 ### Login Screen
 
@@ -103,6 +148,18 @@ Enter your license key and click **Activate**. The key is validated against the 
    - Rendering the vertical clip with subtitles
 
 The output file is saved as `<original_name>_vertical.mp4` in your chosen folder.
+
+---
+
+## Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| **Blank/dark window on macOS** | Use Python 3.11+ from Homebrew (`brew install python@3.11`). System Python 3.9 uses Tk 8.5, which does not render CustomTkinter. |
+| **urllib3 / OpenSSL warning** | Handled automatically. If it persists, ensure `urllib3>=1.26.0,<2` is in `requirements.txt` and run `pip install -r requirements.txt`. |
+| **Tk deprecation warning** | The app sets `TK_SILENCE_DEPRECATION=1` automatically. |
+| **Window icon not applied** | Optional. Add `assets/icon.png` (macOS) or `assets/icon.ico` (Windows) if you want a custom icon. |
+| **FFmpeg not found** | Install FFmpeg and ensure it is on your `PATH` (`ffmpeg -version` should work in a terminal). |
 
 ---
 

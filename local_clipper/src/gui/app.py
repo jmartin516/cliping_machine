@@ -40,7 +40,7 @@ _MIN_SIZE = (780, 600)
 
 _ASSETS = Path(__file__).resolve().parents[2] / "assets"
 
-# Set to True to skip Whop license validation during development.
+# Set to True to skip Whop license validation (no license required).
 _DEV_SKIP_LOGIN = True
 
 
@@ -58,6 +58,21 @@ def _apply_icon(window: ctk.CTk) -> None:
                 window.iconphoto(True, icon)
     except Exception:
         logger.debug("Window icon not applied — non-critical, skipping")
+
+
+def _logo_image(size: tuple[int, int] = (48, 48)) -> Optional[ctk.CTkImage]:
+    """Return CTkImage for assets/icon.png if it exists. CTkImage requires PIL Image objects."""
+    png = (_ASSETS / "icon.png").resolve()
+    if not png.exists():
+        logger.debug("Logo not found at %s", png)
+        return None
+    try:
+        from PIL import Image
+        img = Image.open(str(png))
+        return ctk.CTkImage(light_image=img, size=size)
+    except Exception as e:
+        logger.debug("Logo load failed: %s", e)
+        return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -86,22 +101,31 @@ class LoginView(ctk.CTkFrame):
         card.grid(row=0, column=0)
         card.grid_propagate(False)
         card.configure(height=340)
-        card.grid_rowconfigure(5, weight=1)
+        card.grid_rowconfigure(6, weight=1)
         card.grid_columnconfigure(0, weight=1)
+
+        row_idx = 0
+        logo_img = _logo_image((56, 56))
+        if logo_img:
+            self._logo_img = logo_img  # keep reference to prevent GC
+            ctk.CTkLabel(card, image=logo_img, text="").grid(row=row_idx, column=0, pady=(24, 8))
+            row_idx += 1
 
         ctk.CTkLabel(
             card,
             text="CustosAI Clipper",
             font=ctk.CTkFont(size=28, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).grid(row=0, column=0, pady=(36, 2))
+        ).grid(row=row_idx, column=0, pady=(36 if row_idx == 0 else 8, 2))
+        row_idx += 1
 
         ctk.CTkLabel(
             card,
             text="Enter your license key to continue",
             font=ctk.CTkFont(size=13),
             text_color=COLORS["text_secondary"],
-        ).grid(row=1, column=0, pady=(0, 24))
+        ).grid(row=row_idx, column=0, pady=(0, 24))
+        row_idx += 1
 
         self._key_entry = ctk.CTkEntry(
             card,
@@ -114,7 +138,8 @@ class LoginView(ctk.CTkFrame):
             corner_radius=10,
             justify="center",
         )
-        self._key_entry.grid(row=2, column=0, pady=(0, 16))
+        self._key_entry.grid(row=row_idx, column=0, pady=(0, 16))
+        row_idx += 1
         self._key_entry.bind("<Return>", lambda _: self._on_activate())
 
         self._activate_btn = ctk.CTkButton(
@@ -128,7 +153,8 @@ class LoginView(ctk.CTkFrame):
             corner_radius=10,
             command=self._on_activate,
         )
-        self._activate_btn.grid(row=3, column=0, pady=(0, 12))
+        self._activate_btn.grid(row=row_idx, column=0, pady=(0, 12))
+        row_idx += 1
 
         self._status = ctk.CTkLabel(
             card,
@@ -137,7 +163,7 @@ class LoginView(ctk.CTkFrame):
             text_color=COLORS["text_muted"],
             wraplength=300,
         )
-        self._status.grid(row=4, column=0, pady=(0, 20))
+        self._status.grid(row=row_idx, column=0, pady=(0, 20))
 
     def _on_activate(self) -> None:
         key = self._key_entry.get().strip()
@@ -190,14 +216,24 @@ class DashboardView(ctk.CTkFrame):
         # ── Header ───────────────────────────────────────────────────────
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.grid(row=0, column=0, **pad, pady=(18, 8))
-        header.grid_columnconfigure(1, weight=1)
+
+        col = 0
+        logo_img = _logo_image((32, 32))
+        if logo_img:
+            self._logo_img = logo_img  # keep reference to prevent GC
+            ctk.CTkLabel(header, image=logo_img, text="").grid(row=0, column=col, sticky="w", padx=(0, 8))
+            col += 1
 
         ctk.CTkLabel(
             header,
             text="CustosAI Clipper",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).grid(row=0, column=0, sticky="w")
+        ).grid(row=0, column=col, sticky="w")
+        col += 1
+
+        header.grid_columnconfigure(col, weight=1)
+        col += 1
 
         ctk.CTkLabel(
             header,
@@ -205,7 +241,7 @@ class DashboardView(ctk.CTkFrame):
             font=ctk.CTkFont(size=11),
             text_color=COLORS["success"],
             anchor="e",
-        ).grid(row=0, column=1, sticky="e")
+        ).grid(row=0, column=col, sticky="e")
 
         # ── Controls card ────────────────────────────────────────────────
         controls = ctk.CTkFrame(
