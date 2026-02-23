@@ -1,8 +1,8 @@
-# Local Clipper
+# CustosAI Clipper
 
 A cross-platform desktop application that turns long-form videos into short, vertical (9:16) clips with AI-generated subtitles — entirely offline.
 
-Select a video, pick a Whisper model, and Local Clipper handles the rest: audio extraction, transcription, cropping, subtitle styling, and rendering. The result is a ready-to-upload vertical clip with dynamic, styled captions burned in.
+Select a video, pick a Whisper model, and CustosAI Clipper handles the rest: audio extraction, transcription, cropping, interactive subtitle styling, and rendering. The result is a ready-to-upload vertical clip with dynamic, word-by-word highlighted captions burned in.
 
 ---
 

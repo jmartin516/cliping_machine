@@ -38,3 +38,5 @@ lc_audio_*.wav
 *.manifest
 *.log
 pyarmor_runtime_*/
+*.mp4
+*.mp4

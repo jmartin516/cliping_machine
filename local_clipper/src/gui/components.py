@@ -1,5 +1,5 @@
 """
-Reusable CustomTkinter widgets for Local Clipper.
+Reusable CustomTkinter widgets for CustosAI Clipper.
 
 All widgets in this module are self-contained, dark-mode-aware, and
 designed to be dropped into any CTkFrame without external styling.
@@ -8,6 +8,7 @@ designed to be dropped into any CTkFrame without external styling.
 from __future__ import annotations
 
 import tkinter as tk
+from tkinter import filedialog
 from datetime import datetime
 from typing import Optional
 
@@ -279,9 +280,9 @@ class PathSelector(ctk.CTkFrame):
 
     def _browse(self) -> None:
         if self._dialog_type == "directory":
-            path = tk.filedialog.askdirectory()
+            path = filedialog.askdirectory()
         else:
-            path = tk.filedialog.askopenfilename(filetypes=self._filetypes)
+            path = filedialog.askopenfilename(filetypes=self._filetypes)
 
         if path:
             self._path_var.set(path)
@@ -289,3 +290,218 @@ class PathSelector(ctk.CTkFrame):
     def get(self) -> Optional[str]:
         val = self._path_var.get()
         return None if val == "No file selected" else val
+
+
+# ── YouTubeInput ─────────────────────────────────────────────────────────────
+
+
+class YouTubeInput(ctk.CTkFrame):
+    """Editable URL entry for pasting a YouTube link."""
+
+    def __init__(self, master: ctk.CTkBaseClass, **kwargs):
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        self._label = ctk.CTkLabel(
+            self,
+            text="YouTube URL",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_secondary"],
+            anchor="w",
+        )
+        self._label.pack(fill="x", padx=4, pady=(0, 4))
+
+        self._entry = ctk.CTkEntry(
+            self,
+            height=36,
+            placeholder_text="https://youtube.com/watch?v=...",
+            font=ctk.CTkFont(size=12),
+            fg_color=COLORS["bg_input"],
+            text_color=COLORS["text_primary"],
+            corner_radius=8,
+        )
+        self._entry.pack(fill="x", padx=4)
+
+    def get(self) -> Optional[str]:
+        val = self._entry.get().strip()
+        return val if val else None
+
+
+# ── LabeledSlider ────────────────────────────────────────────────────────────
+
+
+class LabeledSlider(ctk.CTkFrame):
+    """Label + slider + live value display."""
+
+    def __init__(
+        self,
+        master: ctk.CTkBaseClass,
+        label: str,
+        from_: int = 30,
+        to: int = 60,
+        default: int = 45,
+        suffix: str = "s",
+        **kwargs,
+    ):
+        super().__init__(master, fg_color="transparent", **kwargs)
+
+        self._suffix = suffix
+
+        header = ctk.CTkFrame(self, fg_color="transparent")
+        header.pack(fill="x", padx=4)
+
+        self._label = ctk.CTkLabel(
+            header,
+            text=label,
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_secondary"],
+            anchor="w",
+        )
+        self._label.pack(side="left")
+
+        self._value_label = ctk.CTkLabel(
+            header,
+            text=f"{default}{suffix}",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_primary"],
+            anchor="e",
+        )
+        self._value_label.pack(side="right")
+
+        self._var = ctk.IntVar(value=default)
+        self._slider = ctk.CTkSlider(
+            self,
+            from_=from_,
+            to=to,
+            number_of_steps=to - from_,
+            variable=self._var,
+            fg_color=COLORS["bg_input"],
+            progress_color=COLORS["accent"],
+            button_color=COLORS["accent"],
+            button_hover_color=COLORS["accent_hover"],
+            command=self._on_change,
+        )
+        self._slider.pack(fill="x", padx=4, pady=(4, 0))
+
+    def _on_change(self, _value: float) -> None:
+        self._value_label.configure(text=f"{self._var.get()}{self._suffix}")
+
+    def get(self) -> int:
+        return self._var.get()
+
+
+# ── ClipPreviewPanel ─────────────────────────────────────────────────────────
+
+
+class ClipPreviewPanel(ctk.CTkFrame):
+    """
+    Displays clip candidates with checkboxes so the user can pick
+    which ones to render. Call ``set_clips()`` to populate.
+    """
+
+    def __init__(self, master: ctk.CTkBaseClass, **kwargs):
+        super().__init__(
+            master,
+            fg_color=COLORS["bg_card"],
+            corner_radius=12,
+            border_width=1,
+            border_color=COLORS["border"],
+            **kwargs,
+        )
+        self._header = ctk.CTkLabel(
+            self,
+            text="Clip Preview — select which clips to render",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color=COLORS["text_secondary"],
+            anchor="w",
+        )
+        self._header.pack(fill="x", padx=14, pady=(10, 6))
+
+        self._rows_frame = ctk.CTkFrame(self, fg_color="transparent")
+        self._rows_frame.pack(fill="x", padx=10, pady=(0, 10))
+
+        self._check_vars: list[ctk.BooleanVar] = []
+        self._render_btn: Optional[ctk.CTkButton] = None
+        self._on_render_cb: Optional[object] = None
+
+    def set_clips(
+        self,
+        clips: list[dict],
+        on_render: object,
+    ) -> None:
+        """
+        Populate the panel.
+
+        Args:
+            clips:     List of dicts with keys ``index``, ``start``, ``end``,
+                       ``duration``, ``score``.
+            on_render: Callable invoked when user clicks 'Render Selected'.
+        """
+        for child in self._rows_frame.winfo_children():
+            child.destroy()
+        self._check_vars.clear()
+        self._on_render_cb = on_render
+
+        for clip in clips:
+            var = ctk.BooleanVar(value=True)
+            self._check_vars.append(var)
+
+            row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+
+            ctk.CTkCheckBox(
+                row,
+                text="",
+                variable=var,
+                width=24,
+                checkbox_width=20,
+                checkbox_height=20,
+                fg_color=COLORS["accent"],
+                hover_color=COLORS["accent_hover"],
+                border_color=COLORS["border"],
+            ).pack(side="left", padx=(4, 8))
+
+            def _fmt_time(s: float) -> str:
+                m, sec = divmod(int(s), 60)
+                return f"{m}:{sec:02d}"
+
+            label_text = (
+                f"Clip {clip['index']}  |  "
+                f"{_fmt_time(clip['start'])} – {_fmt_time(clip['end'])}  |  "
+                f"{clip['duration']:.0f}s  |  "
+                f"score {clip['score']:.2f}"
+            )
+            ctk.CTkLabel(
+                row,
+                text=label_text,
+                font=ctk.CTkFont(family="Menlo, Consolas, monospace", size=12),
+                text_color=COLORS["text_primary"],
+                anchor="w",
+            ).pack(side="left", fill="x", expand=True)
+
+        btn_row = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(8, 0))
+
+        self._render_btn = ctk.CTkButton(
+            btn_row,
+            text="Render Selected",
+            width=180,
+            height=38,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            corner_radius=10,
+            command=self._on_render_click,
+        )
+        self._render_btn.pack(anchor="e", padx=4)
+
+    def _on_render_click(self) -> None:
+        if self._on_render_cb:
+            self._on_render_cb()
+
+    def get_selected_indices(self) -> list[int]:
+        """Return 0-based indices of checked clips."""
+        return [i for i, var in enumerate(self._check_vars) if var.get()]
+
+    def set_enabled(self, enabled: bool) -> None:
+        if self._render_btn:
+            self._render_btn.configure(state="normal" if enabled else "disabled")

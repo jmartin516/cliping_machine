@@ -1,5 +1,5 @@
 """
-Local Clipper — Application Entry Point
+CustosAI Clipper — Application Entry Point
 
 Bootstraps logging, loads environment configuration, and hands off
 to the GUI layer. This file is the target for PyInstaller compilation.
@@ -24,31 +24,18 @@ def _configure_logging() -> None:
         format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%H:%M:%S",
     )
+    logging.getLogger("PIL").setLevel(logging.WARNING)
+    logging.getLogger("PIL.PngImagePlugin").setLevel(logging.WARNING)
 
 
 def main() -> None:
     _configure_logging()
     logger = logging.getLogger("local_clipper")
-    logger.info("Starting Local Clipper …")
+    logger.info("Starting CustosAI Clipper …")
 
-    print("[DEBUG main] About to import LocalClipperApp")
-    try:
-        from src.gui.app import LocalClipperApp
-        print("[DEBUG main] Import succeeded")
-    except Exception as e:
-        print(f"[DEBUG main] Import FAILED: {e}")
-        import traceback; traceback.print_exc()
-        return
+    from src.gui.app import LocalClipperApp
 
-    print("[DEBUG main] Creating LocalClipperApp instance...")
-    try:
-        app = LocalClipperApp()
-        print("[DEBUG main] App created, entering mainloop")
-    except Exception as e:
-        print(f"[DEBUG main] App creation FAILED: {e}")
-        import traceback; traceback.print_exc()
-        return
-
+    app = LocalClipperApp()
     app.mainloop()
 
 

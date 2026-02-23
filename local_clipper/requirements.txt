@@ -1,4 +1,4 @@
-# Local Clipper — Pinned Dependencies
+# CustosAI Clipper — Pinned Dependencies
 # Python 3.10+
 
 # ── GUI ──────────────────────────────────────────────────────────────
@@ -9,10 +9,14 @@ Pillow==10.4.0
 moviepy==1.0.3
 ffmpeg-python==0.2.0
 imageio[ffmpeg]==2.34.0
+opencv-python-headless>=4.10.0
 
 # ── AI Transcription ─────────────────────────────────────────────────
 faster-whisper==1.0.3
 ctranslate2==4.4.0
+
+# ── YouTube Download ─────────────────────────────────────────────────
+yt-dlp>=2024.1.0
 
 # ── Networking & Security ────────────────────────────────────────────
 requests==2.32.3
