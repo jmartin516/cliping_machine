@@ -44,18 +44,21 @@ La app detecta Tk 8.5 al arrancar y mostrará estas instrucciones si es necesari
 local_clipper/
 ├── main.py                        # Application entry point
 ├── requirements.txt               # Pinned dependencies
+├── LocalClipper.spec              # PyInstaller build config
 ├── .env.example                   # Environment variable template
-├── assets/                        # (Optional) icon.ico / icon.icns
+├── assets/                        # icon.ico / icon.icns for app icon
 └── src/
     ├── auth/
     │   ├── hwid.py                # Cross-platform Hardware ID extraction
     │   └── whop_api.py            # Whop license validation client
     ├── engine/
-    │   ├── ai_transcriber.py      # faster-whisper model loading & transcription
+    │   ├── ai_transcriber.py       # faster-whisper model loading & transcription
     │   └── video_processor.py     # Crop, subtitle overlay, render pipeline
-    └── gui/
-        ├── app.py                 # Main window — Login & Dashboard views
-        └── components.py          # Reusable widgets (LogConsole, ProgressBar, etc.)
+    ├── gui/
+    │   ├── app.py                 # Main window — Login, Setup, Dashboard views
+    │   └── components.py          # Reusable widgets (LogConsole, ProgressBar, etc.)
+    └── utils/
+        └── paths.py               # Path resolution (source vs PyInstaller bundle)
 ```
 
 ---
@@ -63,7 +66,7 @@ local_clipper/
 ## Requirements
 
 - **Python 3.10+** (3.11+ recommended on macOS for proper GUI rendering)
-- **FFmpeg** — must be available on your system `PATH`
+- **FFmpeg** — auto-downloaded on first launch (no manual install needed)
 - **(Optional) NVIDIA GPU** with CUDA toolkit for GPU-accelerated transcription
 
 > **macOS users:** The system Python (3.9) ships with Tk 8.5, which does not render CustomTkinter correctly. Use Python from Homebrew for best results:
@@ -77,10 +80,7 @@ local_clipper/
 
 ### 1. Prerequisites
 
-**FFmpeg** (required for video processing):
-
-- **macOS:** `brew install ffmpeg`
-- **Windows:** Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH
+FFmpeg is **auto-downloaded** on first launch. No manual installation needed.
 
 ### 2. Clone and setup
 
@@ -125,7 +125,11 @@ The app suppresses common warnings (urllib3/OpenSSL, Tk deprecation) automatical
 
 ### Login Screen
 
-Enter your license key and click **Activate**. The key is validated against the Whop API and bound to your machine's Hardware ID. The dashboard will not load until validation succeeds.
+Enter your license key and click **Activate**. The key is validated against the Whop API and bound to your machine's Hardware ID.
+
+### First-Run Setup
+
+After successful activation, the app downloads required components (FFmpeg, optional Whisper model cache). This happens once; subsequent launches skip setup.
 
 ### Dashboard
 
@@ -159,7 +163,7 @@ The output file is saved as `<original_name>_vertical.mp4` in your chosen folder
 | **urllib3 / OpenSSL warning** | Handled automatically. If it persists, ensure `urllib3>=1.26.0,<2` is in `requirements.txt` and run `pip install -r requirements.txt`. |
 | **Tk deprecation warning** | The app sets `TK_SILENCE_DEPRECATION=1` automatically. |
 | **Window icon not applied** | Optional. Add `assets/icon.png` (macOS) or `assets/icon.ico` (Windows) if you want a custom icon. |
-| **FFmpeg not found** | Install FFmpeg and ensure it is on your `PATH` (`ffmpeg -version` should work in a terminal). |
+| **FFmpeg not found** | The app auto-downloads FFmpeg on first launch. If setup fails, check your internet connection and retry. |
 
 ---
 
@@ -167,7 +171,7 @@ The output file is saved as `<original_name>_vertical.mp4` in your chosen folder
 
 | Variable | Description |
 |----------|-------------|
-| `WHOP_API_URL` | Whop membership validation endpoint |
+| `WHOP_API_BASE` | Whop API v2 base URL (default: https://api.whop.com/api/v2) |
 | `WHOP_API_KEY` | Bearer token for Whop API authentication |
 
 ---
@@ -201,22 +205,21 @@ The application uses `customtkinter` for the UI and Python's `threading` module 
 ## Building a Standalone Executable
 
 ```bash
-# Install build tools (not included in requirements.txt)
-pip install pyinstaller pyarmor
-
-# (Optional) Obfuscate source
-pyarmor gen --pack onefile src/
-
-# Build with PyInstaller
-pyinstaller --onefile --windowed --name "LocalClipper" \
-    --icon assets/icon.ico \          # Windows
-    --add-data ".env:." \
-    main.py
+cd local_clipper
+./build.sh   # Uses Python 3.11+ and builds (macOS: requires brew install python@3.11 python-tk@3.11)
 ```
 
-The resulting executable will be in `dist/LocalClipper`.
+Or manually:
+```bash
+cd local_clipper
+python3.11 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt pyinstaller
+python -m PyInstaller LocalClipper.spec
+```
 
-> **Note:** On macOS, replace `--icon assets/icon.ico` with `--icon assets/icon.icns` and the output will be a `.app` bundle.
+**Output:** `dist/LocalClipper.app` (macOS) or `dist/LocalClipper.exe` (Windows)
+
+**End users need nothing:** Python, FFmpeg, and Whisper model are bundled or auto-downloaded on first launch. No terminal required.
 
 ---
 

@@ -22,7 +22,10 @@ from pathlib import Path
 
 # Ensure the project root is on sys.path so `src.*` imports resolve
 # both when running from source and from a PyInstaller bundle.
-_ROOT = Path(__file__).resolve().parent
+if getattr(sys, "frozen", False):
+    _ROOT = Path(sys._MEIPASS)
+else:
+    _ROOT = Path(__file__).resolve().parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
@@ -56,14 +59,27 @@ def _configure_logging() -> None:
 
 def main() -> None:
     if not _check_tk_version():
-        _msg = """
+        # Different message for bundled app vs running from source
+        if getattr(sys, "frozen", False):
+            _msg = """
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  CustosAI Clipper — Incompatible con tu sistema                              ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║  Esta versión de la app no es compatible con tu Mac.                         ║
+║                                                                              ║
+║  Por favor descarga la versión más reciente desde Whop o contacta soporte.   ║
+║                                                                              ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+        else:
+            _msg = """
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  CustosAI Clipper — Tk version incompatible                                  ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  Your Python uses Tk 8.5. CustomTkinter requires Tk 8.6+ to render.         ║
-║  On macOS, the system Python ships with Tk 8.5, which causes a blank window. ║
+║  Tu Python usa Tk 8.5. CustomTkinter requiere Tk 8.6+ para funcionar.       ║
+║  En macOS, el Python del sistema trae Tk 8.5.                               ║
 ║                                                                              ║
-║  FIX: Install Python 3.11+ from Homebrew and recreate your venv:            ║
+║  SOLUCIÓN: Instala Python 3.11+ desde Homebrew:                              ║
 ║                                                                              ║
 ║    brew install python@3.11 python-tk@3.11                                   ║
 ║    cd local_clipper                                                          ║

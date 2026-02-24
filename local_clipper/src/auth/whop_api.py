@@ -5,11 +5,11 @@ Validates a user-supplied license key against the Whop platform, binding it
 to the machine's Hardware ID (HWID) so a single key cannot be shared across
 multiple devices.
 
-The module is intentionally transport-agnostic: it returns typed dataclass
-results so the GUI layer never handles raw HTTP responses.
+Uses Whop API v2: POST /v2/memberships/{license_key}/validate_license
+with metadata containing the HWID.
 
 Environment variables (loaded from .env):
-    WHOP_API_URL  — Base validation endpoint.
+    WHOP_API_BASE  — Base URL (default: https://api.whop.com/api/v2).
     WHOP_API_KEY  — Bearer token for Whop API authentication.
 """
 
@@ -18,21 +18,30 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional, Union
+from urllib.parse import quote
 
 import requests
 from dotenv import load_dotenv
 
 from src.auth.hwid import HWIDError, get_hwid
+from src.utils.paths import get_env_path
 
 logger = logging.getLogger(__name__)
 
-# Load .env from project root (next to main.py)
-_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
-load_dotenv(_ENV_PATH)
+# Load .env from project root (or PyInstaller bundle root)
+load_dotenv(get_env_path())
 
-_API_URL: str = os.getenv("WHOP_API_URL", "https://api.whop.com/api/v2/memberships")
+# Support WHOP_API_BASE (preferred) or legacy WHOP_API_URL
+_api_base = os.getenv("WHOP_API_BASE", "").rstrip("/")
+_api_url = os.getenv("WHOP_API_URL", "").rstrip("/")
+if _api_base:
+    _API_BASE = _api_base
+elif _api_url:
+    # Legacy: WHOP_API_URL was .../memberships → derive base
+    _API_BASE = _api_url.removesuffix("/memberships") or "https://api.whop.com/api/v2"
+else:
+    _API_BASE = "https://api.whop.com/api/v2"
 _API_KEY: str = os.getenv("WHOP_API_KEY", "")
 
 _REQUEST_TIMEOUT_S = 15
@@ -101,6 +110,16 @@ def validate_license(license_key: str) -> ValidationResult:
             message="License key cannot be empty.",
         )
 
+    # Admin bypass: si ADMIN_LICENSE_KEY está definida y coincide, validar sin Whop
+    admin_key = os.getenv("ADMIN_LICENSE_KEY", "").strip()
+    if admin_key and license_key == admin_key:
+        try:
+            hwid = get_hwid()
+        except HWIDError:
+            hwid = "admin"
+        logger.info("Admin license accepted (bypass)")
+        return ValidationSuccess(license_key=license_key, hwid=hwid)
+
     if not _API_KEY:
         logger.error("WHOP_API_KEY is not configured")
         return ValidationFailure(
@@ -119,22 +138,22 @@ def validate_license(license_key: str) -> ValidationResult:
             message="Could not determine hardware ID. Try running as admin.",
         )
 
-    # ── 2. Call Whop API ─────────────────────────────────────────────────
-    payload = {
-        "license_key": license_key,
-        "metadata": {"hwid": hwid},
-    }
+    # ── 2. Call Whop API v2 validate_license ─────────────────────────────
+    # Endpoint: POST /v2/memberships/{license_key}/validate_license
+    # Body: {"metadata": {"hwid": "..."}}
+    url = f"{_API_BASE}/memberships/{quote(license_key)}/validate_license"
+    payload = {"metadata": {"hwid": hwid}}
     headers = {
         "Authorization": f"Bearer {_API_KEY}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
 
-    logger.debug("Validating license against %s", _API_URL)
+    logger.debug("Validating license against %s", url)
 
     try:
         response = requests.post(
-            _API_URL,
+            url,
             json=payload,
             headers=headers,
             timeout=_REQUEST_TIMEOUT_S,
@@ -170,9 +189,10 @@ def _parse_response(
     license_key: str,
     hwid: str,
 ) -> ValidationResult:
-    """Map HTTP status codes and Whop payload to a typed result."""
-
-    if response.status_code == 200:
+    """Map HTTP status codes and Whop payload to a typed result.
+    Whop API v2 returns 201 on successful validation."""
+    # 200 and 201 both indicate success (some Whop versions may return 200)
+    if response.status_code in (200, 201):
         try:
             data = response.json()
         except ValueError:

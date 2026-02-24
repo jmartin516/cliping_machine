@@ -1,12 +1,15 @@
 """
 CustosAI Clipper — Main application window.
 
-Houses two views that are swapped in-place:
+Houses three views that are swapped in-place:
     1. **LoginView**     – License key entry + activation.
-    2. **DashboardView** – Video processing controls, progress, and log console.
+    2. **SetupView**     – First-run dependency download (FFmpeg, optional Whisper).
+    3. **DashboardView** – Video processing controls, progress, and log console.
 
 Threading contract:
     - License validation runs on a daemon thread so the GUI never blocks.
+    - Setup downloads run on daemon threads, posting progress updates
+      back to the main loop via ``after_idle``.
     - Video processing runs on daemon threads, posting progress updates
       back to the main loop via ``after_idle``.
 """
@@ -14,6 +17,7 @@ Threading contract:
 from __future__ import annotations
 
 import logging
+import os
 import platform
 import threading
 from pathlib import Path
@@ -31,6 +35,7 @@ from src.gui.components import (
     StatusProgressBar,
     YouTubeInput,
 )
+from src.utils.paths import get_assets_path
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +43,10 @@ _APP_TITLE = "CustosAI Clipper"
 _WINDOW_SIZE = "900x680"
 _MIN_SIZE = (780, 600)
 
-_ASSETS = Path(__file__).resolve().parents[2] / "assets"
+_ASSETS = get_assets_path()
 
-# Set to True to skip Whop license validation (no license required).
-_DEV_SKIP_LOGIN = True
+# Set to True to skip Whop license validation during development.
+_DEV_SKIP_LOGIN = False
 
 
 def _apply_icon(window: ctk.CTk) -> None:
@@ -58,21 +63,6 @@ def _apply_icon(window: ctk.CTk) -> None:
                 window.iconphoto(True, icon)
     except Exception:
         logger.debug("Window icon not applied — non-critical, skipping")
-
-
-def _logo_image(size: tuple[int, int] = (48, 48)) -> Optional[ctk.CTkImage]:
-    """Return CTkImage for assets/icon.png if it exists. CTkImage requires PIL Image objects."""
-    png = (_ASSETS / "icon.png").resolve()
-    if not png.exists():
-        logger.debug("Logo not found at %s", png)
-        return None
-    try:
-        from PIL import Image
-        img = Image.open(str(png))
-        return ctk.CTkImage(light_image=img, size=size)
-    except Exception as e:
-        logger.debug("Logo load failed: %s", e)
-        return None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -101,31 +91,22 @@ class LoginView(ctk.CTkFrame):
         card.grid(row=0, column=0)
         card.grid_propagate(False)
         card.configure(height=340)
-        card.grid_rowconfigure(6, weight=1)
+        card.grid_rowconfigure(5, weight=1)
         card.grid_columnconfigure(0, weight=1)
-
-        row_idx = 0
-        logo_img = _logo_image((56, 56))
-        if logo_img:
-            self._logo_img = logo_img  # keep reference to prevent GC
-            ctk.CTkLabel(card, image=logo_img, text="").grid(row=row_idx, column=0, pady=(24, 8))
-            row_idx += 1
 
         ctk.CTkLabel(
             card,
             text="CustosAI Clipper",
             font=ctk.CTkFont(size=28, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).grid(row=row_idx, column=0, pady=(36 if row_idx == 0 else 8, 2))
-        row_idx += 1
+        ).grid(row=0, column=0, pady=(36, 2))
 
         ctk.CTkLabel(
             card,
             text="Enter your license key to continue",
             font=ctk.CTkFont(size=13),
             text_color=COLORS["text_secondary"],
-        ).grid(row=row_idx, column=0, pady=(0, 24))
-        row_idx += 1
+        ).grid(row=1, column=0, pady=(0, 24))
 
         self._key_entry = ctk.CTkEntry(
             card,
@@ -138,8 +119,7 @@ class LoginView(ctk.CTkFrame):
             corner_radius=10,
             justify="center",
         )
-        self._key_entry.grid(row=row_idx, column=0, pady=(0, 16))
-        row_idx += 1
+        self._key_entry.grid(row=2, column=0, pady=(0, 16))
         self._key_entry.bind("<Return>", lambda _: self._on_activate())
 
         self._activate_btn = ctk.CTkButton(
@@ -153,8 +133,7 @@ class LoginView(ctk.CTkFrame):
             corner_radius=10,
             command=self._on_activate,
         )
-        self._activate_btn.grid(row=row_idx, column=0, pady=(0, 12))
-        row_idx += 1
+        self._activate_btn.grid(row=3, column=0, pady=(0, 12))
 
         self._status = ctk.CTkLabel(
             card,
@@ -163,7 +142,7 @@ class LoginView(ctk.CTkFrame):
             text_color=COLORS["text_muted"],
             wraplength=300,
         )
-        self._status.grid(row=row_idx, column=0, pady=(0, 20))
+        self._status.grid(row=4, column=0, pady=(0, 20))
 
     def _on_activate(self) -> None:
         key = self._key_entry.get().strip()
@@ -182,14 +161,183 @@ class LoginView(ctk.CTkFrame):
         self._activate_btn.configure(state="normal", text="Activate")
         if isinstance(result, ValidationSuccess):
             self._show_status(result.message, COLORS["success"])
-            logger.info("License validated — transitioning to dashboard")
-            self.after(600, lambda: self._app.show_dashboard(result.license_key))
+            logger.info("License validated — transitioning to setup")
+            self.after(600, lambda: self._app.show_setup(result.license_key))
         else:
             self._show_status(result.message, COLORS["error"])
             logger.warning("Validation failed [%s]: %s", result.error_code, result.message)
 
     def _show_status(self, text: str, color: str) -> None:
         self._status.configure(text=text, text_color=color)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  Setup View — First-run dependency download
+# ══════════════════════════════════════════════════════════════════════════════
+
+
+class SetupView(ctk.CTkFrame):
+    """
+    First-run setup: downloads FFmpeg (and optionally pre-caches Whisper model)
+    so the user has a seamless experience. Runs after successful login.
+    """
+
+    def __init__(self, master: LocalClipperApp, license_key: str, **kwargs):
+        super().__init__(master, fg_color=COLORS["bg_dark"], **kwargs)
+        self._app = master
+        self._license_key = license_key
+
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        card = ctk.CTkFrame(
+            self,
+            width=480,
+            fg_color=COLORS["bg_card"],
+            corner_radius=18,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        card.grid(row=0, column=0)
+        card.grid_propagate(False)
+        card.configure(height=280)
+        card.grid_rowconfigure(4, weight=1)
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="Preparing your environment",
+            font=ctk.CTkFont(size=22, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).grid(row=0, column=0, pady=(32, 8))
+
+        ctk.CTkLabel(
+            card,
+            text="Downloading required components. This may take a few minutes on first launch.",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_secondary"],
+            wraplength=400,
+        ).grid(row=1, column=0, pady=(0, 24))
+
+        self._status_label = ctk.CTkLabel(
+            card,
+            text="Starting…",
+            font=ctk.CTkFont(size=13),
+            text_color=COLORS["text_muted"],
+        )
+        self._status_label.grid(row=2, column=0, pady=(0, 12))
+
+        self._progress = ctk.CTkProgressBar(
+            card,
+            width=360,
+            height=8,
+            corner_radius=4,
+            fg_color=COLORS["bg_input"],
+            progress_color=COLORS["accent"],
+            mode="indeterminate",
+        )
+        self._progress.grid(row=3, column=0, pady=(0, 24))
+        self._progress.start()
+
+        threading.Thread(target=self._setup_worker, daemon=True).start()
+
+    def _update_status(self, text: str) -> None:
+        self.after_idle(lambda: self._status_label.configure(text=text))
+
+    def _setup_worker(self) -> None:
+        """Download FFmpeg and optionally pre-cache Whisper model."""
+        try:
+            # ── 1. FFmpeg (required for video processing) ─────────────────
+            self._update_status("Downloading video engine (FFmpeg)…")
+            try:
+                from static_ffmpeg import run
+
+                ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()
+                os.environ["IMAGEIO_FFMPEG_EXE"] = str(ffmpeg_path)
+                os.environ["FFMPEG_BINARY"] = str(ffmpeg_path)
+                logger.info("FFmpeg ready: %s", ffmpeg_path)
+            except Exception as exc:
+                logger.exception("FFmpeg setup failed")
+                self.after_idle(
+                    lambda: self._app._show_setup_error(
+                        f"Could not download FFmpeg: {exc}"
+                    )
+                )
+                return
+
+            # ── 2. Pre-cache Whisper base model (optional, speeds up first clip) ─
+            self._update_status("Preparing AI transcription model…")
+            try:
+                from src.engine.ai_transcriber import load_model
+
+                load_model("base", on_progress=None)
+                logger.info("Whisper base model cached")
+            except Exception as exc:
+                logger.warning("Whisper pre-cache failed (non-fatal): %s", exc)
+                # Non-fatal — model will download on first Generate
+
+            # ── 3. Done ───────────────────────────────────────────────────
+            self._update_status("Ready!")
+            self.after_idle(self._on_setup_complete)
+        except Exception as exc:
+            logger.exception("Setup failed")
+            self.after_idle(
+                lambda: self._app._show_setup_error(str(exc))
+            )
+
+    def _on_setup_complete(self) -> None:
+        self._progress.stop()
+        self._progress.set(1.0)
+        self._progress.configure(mode="determinate")
+        logger.info("Setup complete — transitioning to dashboard")
+        self.after(400, lambda: self._app.show_dashboard(self._license_key))
+
+
+class _SetupErrorView(ctk.CTkFrame):
+    """Shown when setup fails. Offers return to login."""
+
+    def __init__(self, master: LocalClipperApp, message: str, **kwargs):
+        super().__init__(master, fg_color=COLORS["bg_dark"], **kwargs)
+        self._app = master
+        self.grid_rowconfigure(0, weight=1)
+        self.grid_columnconfigure(0, weight=1)
+
+        card = ctk.CTkFrame(
+            self,
+            width=420,
+            fg_color=COLORS["bg_card"],
+            corner_radius=18,
+            border_width=1,
+            border_color=COLORS["error"],
+        )
+        card.grid(row=0, column=0)
+        card.grid_propagate(False)
+        card.configure(height=200)
+        card.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            card,
+            text="Setup failed",
+            font=ctk.CTkFont(size=18, weight="bold"),
+            text_color=COLORS["error"],
+        ).grid(row=0, column=0, pady=(24, 8))
+
+        ctk.CTkLabel(
+            card,
+            text=message,
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"],
+            wraplength=360,
+        ).grid(row=1, column=0, pady=(0, 20))
+
+        ctk.CTkButton(
+            card,
+            text="Back to Login",
+            width=200,
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=lambda: self._app._show_login(),
+        ).grid(row=2, column=0, pady=(0, 24))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -216,24 +364,14 @@ class DashboardView(ctk.CTkFrame):
         # ── Header ───────────────────────────────────────────────────────
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.grid(row=0, column=0, **pad, pady=(18, 8))
-
-        col = 0
-        logo_img = _logo_image((32, 32))
-        if logo_img:
-            self._logo_img = logo_img  # keep reference to prevent GC
-            ctk.CTkLabel(header, image=logo_img, text="").grid(row=0, column=col, sticky="w", padx=(0, 8))
-            col += 1
+        header.grid_columnconfigure(1, weight=1)
 
         ctk.CTkLabel(
             header,
             text="CustosAI Clipper",
             font=ctk.CTkFont(size=22, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).grid(row=0, column=col, sticky="w")
-        col += 1
-
-        header.grid_columnconfigure(col, weight=1)
-        col += 1
+        ).grid(row=0, column=0, sticky="w")
 
         ctk.CTkLabel(
             header,
@@ -241,7 +379,7 @@ class DashboardView(ctk.CTkFrame):
             font=ctk.CTkFont(size=11),
             text_color=COLORS["success"],
             anchor="e",
-        ).grid(row=0, column=col, sticky="e")
+        ).grid(row=0, column=1, sticky="e")
 
         # ── Controls card ────────────────────────────────────────────────
         controls = ctk.CTkFrame(
@@ -624,7 +762,7 @@ class LocalClipperApp(ctk.CTk):
         self._dashboard: Optional[DashboardView] = None
 
         if _DEV_SKIP_LOGIN:
-            self.show_dashboard("dev-key-local")
+            self.show_setup("dev-key-local")
         else:
             self._show_login()
 
@@ -636,6 +774,14 @@ class LocalClipperApp(ctk.CTk):
 
     def _show_login(self) -> None:
         self._swap_view(LoginView(self))
+
+    def show_setup(self, license_key: str) -> None:
+        """Show first-run setup (FFmpeg + optional Whisper pre-cache)."""
+        self._swap_view(SetupView(self, license_key))
+
+    def _show_setup_error(self, message: str) -> None:
+        """Show setup error and return to login."""
+        self._swap_view(_SetupErrorView(self, message))
 
     def show_dashboard(self, license_key: str) -> None:
         self._dashboard = DashboardView(self, license_key)

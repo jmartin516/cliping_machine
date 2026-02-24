@@ -6,7 +6,9 @@ __pycache__/
 *.egg
 dist/
 build/
+# LocalClipper.spec is committed for reproducible builds
 *.spec
+!local_clipper/LocalClipper.spec
 
 # ── Virtual environments ─────────────────────────────────────────────
 .venv/
@@ -39,4 +41,7 @@ lc_audio_*.wav
 *.log
 pyarmor_runtime_*/
 *.mp4
-*.mp4
+
+# ── Build outputs (distribute via Whop, not git) ─────────────────────────
+*.zip
+*.dmg
