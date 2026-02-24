@@ -669,6 +669,10 @@ class DashboardView(ctk.CTkFrame):
             )
             return
 
+        output = str(Path(output).resolve())
+        if bg_video:
+            bg_video = str(Path(bg_video).resolve())
+
         self._console.write(f"Source: {source}", "info")
         self._console.write(f"Output: {output}", "info")
         self._console.write(f"Model:  {self.get_model_size()}", "info")
@@ -718,7 +722,6 @@ class DashboardView(ctk.CTkFrame):
 
                 downloaded = download_video(
                     url=source,
-                    output_dir=output,
                     on_log=self._console.write,
                     on_progress=_yt_progress,
                 )

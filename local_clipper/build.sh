@@ -66,6 +66,12 @@ python scripts/setup_icons.py || true
 echo "Building with PyInstaller..."
 python -m PyInstaller -y LocalClipper.spec
 
+# Firma en macOS (ad-hoc por defecto; ver scripts/sign_and_notarize.sh para Developer ID)
+if [ "$(uname)" = "Darwin" ] && [ -d "dist/LocalClipper.app" ]; then
+    echo "Firmando app para macOS..."
+    bash scripts/sign_and_notarize.sh || echo "(Firma opcional falló; la app funcionará con clic derecho → Abrir)"
+fi
+
 echo ""
 echo "=== Build complete ==="
 echo "Output: dist/LocalClipper (macOS) or dist/LocalClipper.exe (Windows)"

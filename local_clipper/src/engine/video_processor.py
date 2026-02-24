@@ -414,6 +414,11 @@ def _render_single_clip(
 
     _log(on_log, f"Encoding {output_path.name} [{time_label}] — {total_frames} frames", "info")
 
+    # Use writable temp dir for MoviePy temp files (avoids "Read-only file system" when running from DMG)
+    _temp_dir = Path(tempfile.gettempdir()) / "CustosAI-Clipper" / "render"
+    _temp_dir.mkdir(parents=True, exist_ok=True)
+    _temp_audio = _temp_dir / f"temp_{output_path.stem}.m4a"
+
     t0 = time.perf_counter()
     composite.write_videofile(
         str(output_path),
@@ -423,6 +428,8 @@ def _render_single_clip(
         preset="medium",
         threads=max(1, os.cpu_count() or 4),
         logger=None,
+        temp_audiofile=str(_temp_audio),
+        remove_temp=True,
     )
     composite.close()
 
@@ -550,7 +557,7 @@ def render_selected_clips(
     on_progress: Optional[ProgressCallback] = None,
 ) -> list[Path]:
     """Render only the user-selected clip regions."""
-    output_dir = Path(output_dir)
+    output_dir = Path(output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = Path(video_path).stem
 

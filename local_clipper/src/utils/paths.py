@@ -62,5 +62,5 @@ def get_bundled_ffmpeg_dir() -> Path | None:
     ffmpeg_dir = base / "ffmpeg_bundle" / platform_key
     crumb = ffmpeg_dir / "installed.crumb"
     if crumb.exists():
-        return ffmpeg_dir
+        return ffmpeg_dir.resolve()
     return None

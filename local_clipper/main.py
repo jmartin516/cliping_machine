@@ -9,7 +9,15 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 import warnings
+from pathlib import Path
+
+# When running from a DMG/bundle, cwd may be the read-only mount. Set to a writable dir.
+if getattr(sys, "frozen", False):
+    _writable_cwd = Path(tempfile.gettempdir()) / "CustosAI-Clipper"
+    _writable_cwd.mkdir(parents=True, exist_ok=True)
+    os.chdir(str(_writable_cwd))
 
 # Suppress known warnings before any imports that trigger them
 warnings.filterwarnings("ignore", message=".*OpenSSL.*")
@@ -18,7 +26,6 @@ os.environ.setdefault("TK_SILENCE_DEPRECATION", "1")
 
 import logging
 import platform
-from pathlib import Path
 
 # Ensure the project root is on sys.path so `src.*` imports resolve
 # both when running from source and from a PyInstaller bundle.
@@ -105,4 +112,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.freeze_support()
     main()

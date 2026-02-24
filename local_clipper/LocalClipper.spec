@@ -44,6 +44,13 @@ if (PROJECT_ROOT / ".env").exists():
 if FFMPEG_BUNDLE.exists() and (FFMPEG_BUNDLE / "installed.crumb").exists():
     datas.append((str(FFMPEG_BUNDLE), str(Path("ffmpeg_bundle") / PLATFORM_KEY)))
 
+# Bundle faster_whisper assets (silero_vad.onnx for VAD) — required for transcription
+for _p in sys.path:
+    fw_assets = Path(_p) / "faster_whisper" / "assets"
+    if fw_assets.exists() and (fw_assets / "silero_vad.onnx").exists():
+        datas.append((str(fw_assets), "faster_whisper/assets"))
+        break
+
 # Hidden imports for faster-whisper, ctranslate2, moviepy, etc.
 hiddenimports = [
     "faster_whisper",
@@ -68,8 +75,14 @@ hiddenimports = [
 # Collect submodules for packages that use dynamic imports
 try:
     from PyInstaller.utils.hooks import collect_submodules, collect_data_files
-    hiddenimports += collect_submodules("ctranslate2")
-    hiddenimports += collect_submodules("faster_whisper")
+    try:
+        hiddenimports += collect_submodules("ctranslate2")
+    except Exception:
+        pass  # ctranslate2 can segfault when collecting submodules on some systems
+    try:
+        hiddenimports += collect_submodules("faster_whisper")
+    except Exception:
+        pass
     try:
         datas += collect_data_files("static_ffmpeg")
     except Exception:
@@ -142,6 +155,7 @@ if sys.platform == "darwin":
         info_plist={
             "NSPrincipalClass": "NSApplication",
             "NSHighResolutionCapable": True,
+            "LSMultipleInstancesProhibited": True,
         },
     )
 else:

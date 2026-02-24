@@ -11,6 +11,7 @@ import logging
 import os
 import re
 import shutil
+import tempfile
 import time
 from pathlib import Path
 from typing import Callable, Optional
@@ -45,16 +46,18 @@ def is_youtube_url(url: str) -> bool:
 
 def download_video(
     url: str,
-    output_dir: Path | str,
     on_log: Optional[LogCallback] = None,
     on_progress: Optional[ProgressCallback] = None,
 ) -> Path:
     """
-    Download a YouTube video as an mp4 file.
+    Download a YouTube video as an mp4 file to a temp directory.
+
+    Uses a dedicated temp dir to avoid path/permission issues when running
+    from a bundled app (e.g. DMG on macOS). The caller should delete the
+    file after processing.
 
     Args:
         url:         YouTube URL.
-        output_dir:  Directory to save the downloaded file.
         on_log:      ``(message, level)`` callback for UI log lines.
         on_progress: ``(0.0-1.0, status)`` callback for the progress bar.
 
@@ -69,8 +72,9 @@ def download_video(
     if not is_youtube_url(url):
         raise ValueError(f"Not a valid YouTube URL: {url}")
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    download_dir = Path(tempfile.gettempdir()) / "CustosAI-Clipper" / "downloads"
+    download_dir.mkdir(parents=True, exist_ok=True)
+    _log(on_log, f"Download dir: {download_dir}", "debug")
 
     _log(on_log, f"Downloading: {url}", "info")
     if on_progress:
@@ -91,7 +95,7 @@ def download_video(
             if on_progress:
                 on_progress(0.92, "Merging audio + video…")
 
-    outtmpl = str(output_dir / "%(title)s.%(ext)s")
+    outtmpl = str(download_dir / "%(title)s.%(ext)s")
 
     # yt-dlp needs ffmpeg to merge video+audio; use bundled or env path
     ffmpeg_path = os.environ.get("FFMPEG_BINARY") or os.environ.get("IMAGEIO_FFMPEG_EXE")
@@ -100,6 +104,7 @@ def download_video(
         if bundled:
             ffmpeg_path = str(bundled / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
     if ffmpeg_path and os.path.isfile(ffmpeg_path):
+        ffmpeg_path = str(Path(ffmpeg_path).resolve())
         _log(on_log, f"Using FFmpeg: {Path(ffmpeg_path).name}", "debug")
 
     ydl_opts: dict = {
