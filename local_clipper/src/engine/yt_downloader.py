@@ -8,6 +8,7 @@ via the same callback interface used by the rest of the pipeline.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import time
@@ -15,6 +16,8 @@ from pathlib import Path
 from typing import Callable, Optional
 
 import yt_dlp
+
+from src.utils.paths import get_bundled_ffmpeg_dir
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +93,15 @@ def download_video(
 
     outtmpl = str(output_dir / "%(title)s.%(ext)s")
 
+    # yt-dlp needs ffmpeg to merge video+audio; use bundled or env path
+    ffmpeg_path = os.environ.get("FFMPEG_BINARY") or os.environ.get("IMAGEIO_FFMPEG_EXE")
+    if not ffmpeg_path:
+        bundled = get_bundled_ffmpeg_dir()
+        if bundled:
+            ffmpeg_path = str(bundled / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg"))
+    if ffmpeg_path and os.path.isfile(ffmpeg_path):
+        _log(on_log, f"Using FFmpeg: {Path(ffmpeg_path).name}", "debug")
+
     ydl_opts: dict = {
         "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
         "outtmpl": outtmpl,
@@ -98,6 +110,8 @@ def download_video(
         "quiet": True,
         "no_warnings": True,
     }
+    if ffmpeg_path and os.path.isfile(ffmpeg_path):
+        ydl_opts["ffmpeg_location"] = ffmpeg_path
 
     browser = _detect_browser()
     if browser:
