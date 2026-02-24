@@ -4,7 +4,10 @@
 # Build: python -m PyInstaller LocalClipper.spec
 # Output macOS: dist/LocalClipper.app (proper .app bundle)
 # Output Windows: dist/LocalClipper.exe (onefile)
+#
+# Run scripts/setup_ffmpeg_bundle.py and scripts/setup_icons.py before building.
 
+import platform
 import sys
 from pathlib import Path
 
@@ -15,13 +18,31 @@ SPEC_DIR = Path(SPECPATH)
 PROJECT_ROOT = SPEC_DIR
 ASSETS = PROJECT_ROOT / "assets"
 
-# Data files to bundle (assets for icons; .env for license validation)
+# Platform key for FFmpeg bundle (darwin, darwin_arm64, win32, linux, linux_arm64)
+def _get_platform_key():
+    m = platform.machine().lower()
+    arm = m in ("arm64", "aarch64")
+    if sys.platform == "win32":
+        return "win32"
+    if sys.platform == "darwin":
+        return "darwin_arm64" if arm else "darwin"
+    if sys.platform == "linux":
+        return "linux_arm64" if arm else "linux"
+    return sys.platform
+
+PLATFORM_KEY = _get_platform_key()
+FFMPEG_BUNDLE = PROJECT_ROOT / "ffmpeg_bundle" / PLATFORM_KEY
+
+# Data files to bundle (assets for icons; .env for license validation; FFmpeg)
 datas = []
 if (ASSETS).exists():
     datas.append((str(ASSETS), "assets"))
 # Bundle .env so the app can validate Whop licenses (required for distribution)
 if (PROJECT_ROOT / ".env").exists():
     datas.append((str(PROJECT_ROOT / ".env"), "."))
+# Bundle pre-downloaded FFmpeg (no download on first launch)
+if FFMPEG_BUNDLE.exists() and (FFMPEG_BUNDLE / "installed.crumb").exists():
+    datas.append((str(FFMPEG_BUNDLE), str(Path("ffmpeg_bundle") / PLATFORM_KEY)))
 
 # Hidden imports for faster-whisper, ctranslate2, moviepy, etc.
 hiddenimports = [

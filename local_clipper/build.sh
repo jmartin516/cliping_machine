@@ -54,9 +54,17 @@ source .venv/bin/activate
 echo "Installing dependencies..."
 pip install -q -r requirements.txt pyinstaller
 
+# Pre-download FFmpeg for bundling (no download on first launch)
+echo "Pre-downloading FFmpeg..."
+python scripts/setup_ffmpeg_bundle.py
+
+# Generate icon.icns and icon.ico from assets/icon.png (optional; may already exist)
+echo "Generating app icons..."
+python scripts/setup_icons.py || true
+
 # Build
 echo "Building with PyInstaller..."
-python -m PyInstaller LocalClipper.spec
+python -m PyInstaller -y LocalClipper.spec
 
 echo ""
 echo "=== Build complete ==="

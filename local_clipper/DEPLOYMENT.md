@@ -12,7 +12,7 @@ Todo está incluido en el paquete:
 - **Modelo Whisper** → se descarga automáticamente la primera vez
 - **Licencia** → el usuario solo pega la key que recibe en Whop
 
-El usuario: descarga → abre → pega licencia → espera ~2–5 min (solo primera vez) → usa la app.
+El usuario: descarga → abre → pega licencia → usa la app (FFmpeg ya viene incluido, sin descargas).
 
 ---
 
@@ -47,6 +47,8 @@ source .venv/bin/activate
 pip install -r requirements.txt pyinstaller
 python -m PyInstaller LocalClipper.spec
 ```
+
+**Nota:** El build pre-descarga FFmpeg y genera icon.icns/icon.ico automáticamente. El usuario no descarga nada en el primer arranque.
 
 **Crear DMG y ZIP para distribución:**
 ```bash

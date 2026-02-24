@@ -41,8 +41,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller
 
+      - name: Pre-download FFmpeg for bundling
+        run: python scripts/setup_ffmpeg_bundle.py
+
+      - name: Generate app icons
+        run: python scripts/setup_icons.py
+
       - name: Build with PyInstaller
-        run: python -m PyInstaller LocalClipper.spec
+        run: python -m PyInstaller -y LocalClipper.spec
 
       - name: Create CustosAI-Clipper-Windows.zip
         run: |

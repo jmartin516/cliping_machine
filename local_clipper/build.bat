@@ -28,6 +28,14 @@ REM Install dependencies
 echo Installing dependencies...
 pip install -q -r requirements.txt pyinstaller
 
+REM Pre-download FFmpeg for bundling (no download on first launch)
+echo Pre-downloading FFmpeg...
+python scripts\setup_ffmpeg_bundle.py
+
+REM Generate icon.ico from assets\icon.png
+echo Generating app icons...
+python scripts\setup_icons.py
+
 REM Check .env exists
 if not exist ".env" (
     echo.

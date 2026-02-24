@@ -35,7 +35,7 @@ from src.gui.components import (
     StatusProgressBar,
     YouTubeInput,
 )
-from src.utils.paths import get_assets_path
+from src.utils.paths import get_assets_path, get_bundled_ffmpeg_dir
 
 logger = logging.getLogger(__name__)
 
@@ -90,23 +90,42 @@ class LoginView(ctk.CTkFrame):
         )
         card.grid(row=0, column=0)
         card.grid_propagate(False)
-        card.configure(height=340)
-        card.grid_rowconfigure(5, weight=1)
+        card.configure(height=380)
+        card.grid_rowconfigure(6, weight=1)
         card.grid_columnconfigure(0, weight=1)
+
+        # Logo from assets
+        row = 0
+        logo_path = _ASSETS / "icon.png"
+        if logo_path.exists():
+            try:
+                from PIL import Image
+                pil_img = Image.open(logo_path).convert("RGBA").resize((64, 64))
+                logo_img = ctk.CTkImage(
+                    light_image=pil_img,
+                    dark_image=pil_img,
+                    size=(64, 64),
+                )
+                ctk.CTkLabel(card, image=logo_img, text="").grid(row=row, column=0, pady=(24, 8))
+                row += 1
+            except Exception as exc:
+                logger.debug("Logo not displayed: %s", exc)
 
         ctk.CTkLabel(
             card,
             text="CustosAI Clipper",
             font=ctk.CTkFont(size=28, weight="bold"),
             text_color=COLORS["text_primary"],
-        ).grid(row=0, column=0, pady=(36, 2))
+        ).grid(row=row, column=0, pady=(36 if row == 0 else 0, 2))
+        row += 1
 
         ctk.CTkLabel(
             card,
             text="Enter your license key to continue",
             font=ctk.CTkFont(size=13),
             text_color=COLORS["text_secondary"],
-        ).grid(row=1, column=0, pady=(0, 24))
+        ).grid(row=row, column=0, pady=(0, 24))
+        row += 1
 
         self._key_entry = ctk.CTkEntry(
             card,
@@ -119,8 +138,9 @@ class LoginView(ctk.CTkFrame):
             corner_radius=10,
             justify="center",
         )
-        self._key_entry.grid(row=2, column=0, pady=(0, 16))
+        self._key_entry.grid(row=row, column=0, pady=(0, 16))
         self._key_entry.bind("<Return>", lambda _: self._on_activate())
+        row += 1
 
         self._activate_btn = ctk.CTkButton(
             card,
@@ -133,7 +153,8 @@ class LoginView(ctk.CTkFrame):
             corner_radius=10,
             command=self._on_activate,
         )
-        self._activate_btn.grid(row=3, column=0, pady=(0, 12))
+        self._activate_btn.grid(row=row, column=0, pady=(0, 12))
+        row += 1
 
         self._status = ctk.CTkLabel(
             card,
@@ -142,7 +163,7 @@ class LoginView(ctk.CTkFrame):
             text_color=COLORS["text_muted"],
             wraplength=300,
         )
-        self._status.grid(row=4, column=0, pady=(0, 20))
+        self._status.grid(row=row, column=0, pady=(0, 20))
 
     def _on_activate(self) -> None:
         key = self._key_entry.get().strip()
@@ -245,25 +266,40 @@ class SetupView(ctk.CTkFrame):
         self.after_idle(lambda: self._status_label.configure(text=text))
 
     def _setup_worker(self) -> None:
-        """Download FFmpeg and optionally pre-cache Whisper model."""
+        """Use bundled FFmpeg or download if not bundled. Pre-cache Whisper model."""
         try:
             # ── 1. FFmpeg (required for video processing) ─────────────────
-            self._update_status("Downloading video engine (FFmpeg)…")
-            try:
-                from static_ffmpeg import run
-
-                ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()
-                os.environ["IMAGEIO_FFMPEG_EXE"] = str(ffmpeg_path)
-                os.environ["FFMPEG_BINARY"] = str(ffmpeg_path)
-                logger.info("FFmpeg ready: %s", ffmpeg_path)
-            except Exception as exc:
-                logger.exception("FFmpeg setup failed")
-                self.after_idle(
-                    lambda: self._app._show_setup_error(
-                        f"Could not download FFmpeg: {exc}"
+            bundled = get_bundled_ffmpeg_dir()
+            if bundled:
+                self._update_status("Preparing video engine…")
+                ffmpeg_name = "ffmpeg.exe" if os.name == "nt" else "ffmpeg"
+                ffmpeg_path = bundled / ffmpeg_name
+                if ffmpeg_path.exists():
+                    os.environ["IMAGEIO_FFMPEG_EXE"] = str(ffmpeg_path)
+                    os.environ["FFMPEG_BINARY"] = str(ffmpeg_path)
+                    logger.info("FFmpeg ready (bundled): %s", ffmpeg_path)
+                else:
+                    self.after_idle(
+                        lambda: self._app._show_setup_error("Bundled FFmpeg not found.")
                     )
-                )
-                return
+                    return
+            else:
+                self._update_status("Downloading video engine (FFmpeg)…")
+                try:
+                    from static_ffmpeg import run
+
+                    ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()
+                    os.environ["IMAGEIO_FFMPEG_EXE"] = str(ffmpeg_path)
+                    os.environ["FFMPEG_BINARY"] = str(ffmpeg_path)
+                    logger.info("FFmpeg ready: %s", ffmpeg_path)
+                except Exception as exc:
+                    logger.exception("FFmpeg setup failed")
+                    self.after_idle(
+                        lambda: self._app._show_setup_error(
+                            f"Could not download FFmpeg: {exc}"
+                        )
+                    )
+                    return
 
             # ── 2. Pre-cache Whisper base model (optional, speeds up first clip) ─
             self._update_status("Preparing AI transcription model…")

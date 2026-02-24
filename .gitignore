@@ -45,3 +45,6 @@ pyarmor_runtime_*/
 # ── Build outputs (distribute via Whop, not git) ─────────────────────────
 *.zip
 *.dmg
+
+# ── Pre-downloaded FFmpeg (generated during build) ────────────────────────
+local_clipper/ffmpeg_bundle/
