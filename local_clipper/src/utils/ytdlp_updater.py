@@ -9,7 +9,6 @@ breaks without rebuilding the app.
 from __future__ import annotations
 
 import logging
-import os
 import platform
 import stat
 import sys
@@ -26,6 +25,7 @@ LogCallback = Callable[[str, str], None]
 
 _CONFIG_URL = "https://raw.githubusercontent.com/jmartin516/custosai-clipper-config/main/config.json"
 _REQUEST_TIMEOUT = 15
+_YTDLP_RELEASE_BASE = "https://github.com/yt-dlp/yt-dlp/releases/download"
 
 
 def _get_platform_key() -> str:
@@ -42,6 +42,20 @@ def _get_ytdlp_binary_name() -> str:
     if sys.platform == "win32":
         return "yt-dlp.exe"
     return "yt-dlp"
+
+
+def _build_download_url(version: str, platform_key: str) -> str:
+    """
+    Build the correct yt-dlp download URL for the given version and platform.
+
+    yt-dlp uses a single universal binary (yt-dlp_macos) for both Intel and ARM64 Macs.
+    """
+    if platform_key == "windows":
+        asset = "yt-dlp.exe"
+    else:
+        # macos_intel and macos_arm64 both use yt-dlp_macos (universal binary)
+        asset = "yt-dlp_macos"
+    return f"{_YTDLP_RELEASE_BASE}/{version}/{asset}"
 
 
 def get_or_update_ytdlp_binary(on_log: Optional[LogCallback] = None) -> Optional[Path]:
@@ -79,15 +93,9 @@ def get_or_update_ytdlp_binary(on_log: Optional[LogCallback] = None) -> Optional
         return None
 
     yt_dlp_config = config.get("yt_dlp", {})
-    download_urls = yt_dlp_config.get("download_urls", {})
     remote_version = yt_dlp_config.get("version", "unknown")
-    download_url = download_urls.get(platform_key)
-
-    if not download_url:
-        _log(f"No download URL for platform {platform_key}", "warning")
-        if binary_path.exists():
-            return binary_path
-        return None
+    # Build URL ourselves to ensure correct format (config may have stale/wrong URLs)
+    download_url = _build_download_url(remote_version, platform_key)
 
     # Use existing binary if version matches
     if binary_path.exists() and version_file.exists():
