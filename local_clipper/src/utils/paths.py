@@ -7,6 +7,7 @@ When running from a PyInstaller bundle, resources are extracted to sys._MEIPASS.
 
 from __future__ import annotations
 
+import os
 import platform
 import sys
 from pathlib import Path
@@ -64,3 +65,25 @@ def get_bundled_ffmpeg_dir() -> Path | None:
     if crumb.exists():
         return ffmpeg_dir.resolve()
     return None
+
+
+def get_app_data_dir() -> Path:
+    """
+    Return the app data directory (user-writable) for config, binaries, etc.
+
+    - Windows: %APPDATA%\\CustosAI-Clipper
+    - macOS: ~/Library/Application Support/CustosAI-Clipper
+    """
+    if sys.platform == "win32":
+        base = Path(os.environ.get("APPDATA", "")) / "CustosAI-Clipper"
+    else:
+        base = Path.home() / "Library" / "Application Support" / "CustosAI-Clipper"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
+def get_ytdlp_bin_dir() -> Path:
+    """Return the directory for the yt-dlp standalone binary."""
+    bin_dir = get_app_data_dir() / "bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    return bin_dir
