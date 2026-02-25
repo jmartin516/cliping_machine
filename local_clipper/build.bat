@@ -40,6 +40,7 @@ REM Check .env exists
 if not exist ".env" (
     echo.
     echo WARNING: .env not found. Copy .env.example to .env and add WHOP_API_KEY.
+    echo Optionally add ADMIN_LICENSE_KEY for your personal admin access.
     echo Build will continue but license validation may not work.
     pause
 )

@@ -2,7 +2,9 @@
 # Builds LocalClipper.exe and creates CustosAI-Clipper-Windows.zip
 # Run: push to main, or manually trigger from Actions tab
 #
-# Required: Add WHOP_API_KEY as repository secret (Settings → Secrets → Actions)
+# Required secrets (Settings → Secrets → Actions):
+#   WHOP_API_KEY   — Whop API bearer token for license validation
+#   ADMIN_LICENSE_KEY — (optional) Master key that always validates; for your personal use
 
 name: Build Windows
 
@@ -30,10 +32,14 @@ jobs:
         env:
           WHOP_API_KEY: ${{ secrets.WHOP_API_KEY }}
           WHOP_API_BASE: ${{ secrets.WHOP_API_BASE }}
+          ADMIN_LICENSE_KEY: ${{ secrets.ADMIN_LICENSE_KEY }}
         run: |
           $base = if ($env:WHOP_API_BASE) { $env:WHOP_API_BASE } else { "https://api.whop.com/api/v2" }
           $key = if ($env:WHOP_API_KEY) { $env:WHOP_API_KEY } else { "placeholder" }
-          "WHOP_API_BASE=$base`nWHOP_API_KEY=$key" | Out-File -FilePath .env -Encoding utf8
+          $admin = if ($env:ADMIN_LICENSE_KEY) { $env:ADMIN_LICENSE_KEY } else { "" }
+          $lines = @("WHOP_API_BASE=$base", "WHOP_API_KEY=$key")
+          if ($admin) { $lines += "ADMIN_LICENSE_KEY=$admin" }
+          $lines -join "`n" | Out-File -FilePath .env -Encoding utf8
           if ($key -eq "placeholder") { Write-Host "::warning::WHOP_API_KEY secret not set. Add it in Settings → Secrets → Actions for license validation." }
 
       - name: Install dependencies
