@@ -108,7 +108,7 @@ def download_video(
         _log(on_log, f"Using FFmpeg: {Path(ffmpeg_path).name}", "debug")
 
     ydl_opts: dict = {
-        "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        "format": "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best",
         "outtmpl": outtmpl,
         "merge_output_format": "mp4",
         "progress_hooks": [_progress_hook],
