@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 ProgressCallback = Callable[[float, str], None]
 LogCallback = Callable[[str, str], None]
+CheckCancelledCallback = Callable[[], None]
 
 _YT_URL_PATTERN = re.compile(
     r"(https?://)?(www\.)?(youtube\.com|youtu\.be)/.+"
@@ -61,6 +62,7 @@ def _download_with_binary(
     browser: Optional[str],
     on_log: Optional[LogCallback],
     on_progress: Optional[ProgressCallback],
+    check_cancelled: Optional[CheckCancelledCallback] = None,
 ) -> Optional[Path]:
     """Download using the standalone yt-dlp binary. Returns Path on success, None to fall back."""
     ytdlp_path = get_or_update_ytdlp_binary(on_log=on_log)
@@ -93,7 +95,21 @@ def _download_with_binary(
         on_progress(0.1, "Downloading with yt-dlp…")
 
     try:
-        subprocess.run(cmd, env=env, check=True, capture_output=True, timeout=3600)
+        if check_cancelled:
+            proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            while proc.poll() is None:
+                if check_cancelled:
+                    try:
+                        check_cancelled()
+                    except RuntimeError:
+                        proc.terminate()
+                        proc.wait(timeout=5)
+                        raise
+                time.sleep(0.5)
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, cmd)
+        else:
+            subprocess.run(cmd, env=env, check=True, capture_output=True, timeout=3600)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         _log(on_log, f"yt-dlp binary failed: {exc}", "warning")
         return None
@@ -118,6 +134,7 @@ def download_video(
     url: str,
     on_log: Optional[LogCallback] = None,
     on_progress: Optional[ProgressCallback] = None,
+    check_cancelled: Optional[CheckCancelledCallback] = None,
 ) -> Path:
     """
     Download a YouTube video as an mp4 file to a temp directory.
@@ -167,7 +184,9 @@ def download_video(
         _log(on_log, f"Using cookies from {browser} (for age-restricted videos)", "debug")
 
     # Try standalone binary first (allows updates without app rebuild)
-    result = _download_with_binary(url, download_dir, ffmpeg_path, browser, on_log, on_progress)
+    result = _download_with_binary(
+        url, download_dir, ffmpeg_path, browser, on_log, on_progress, check_cancelled
+    )
     if result is not None:
         elapsed = time.perf_counter() - t0
         size_mb = result.stat().st_size / (1024 * 1024)
@@ -180,6 +199,8 @@ def download_video(
     _log(on_log, "Using bundled yt-dlp library", "debug")
 
     def _progress_hook(d: dict) -> None:
+        if check_cancelled:
+            check_cancelled()
         if d["status"] == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
             downloaded = d.get("downloaded_bytes", 0)

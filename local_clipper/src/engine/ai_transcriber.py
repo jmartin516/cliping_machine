@@ -92,13 +92,18 @@ def load_model(
     return model
 
 
+# Callable that raises if cancelled (no args, no return)
+CheckCancelledCallback = Callable[[], None]
+
+
 def transcribe(
     model: WhisperModel,
     audio_path: str | Path,
     on_progress: Optional[ProgressCallback] = None,
-) -> list[Segment]:
+    check_cancelled: Optional[CheckCancelledCallback] = None,
+) -> tuple[list[Segment], str]:
     """
-    Transcribe *audio_path* and return a flat list of segments.
+    Transcribe *audio_path* and return segments plus detected language.
 
     Each segment is a dict with keys ``start`` (float), ``end`` (float),
     and ``text`` (str, uppercased for subtitle styling).
@@ -109,8 +114,8 @@ def transcribe(
         on_progress: Optional callback for UI updates.
 
     Returns:
-        List of segment dicts, e.g.
-        ``[{"start": 0.0, "end": 2.0, "text": "HELLO WORLD"}, …]``
+        Tuple of (segment list, language code), e.g.
+        ``([{"start": 0.0, "end": 2.0, "text": "HELLO WORLD"}, …], "en")``
     """
     _log(on_progress, "Starting transcription…", "info")
     t0 = time.perf_counter()
@@ -131,6 +136,8 @@ def transcribe(
 
     segments: list[Segment] = []
     for seg in segments_iter:
+        if check_cancelled:
+            check_cancelled()
         text = seg.text.strip()
         if not text:
             continue
@@ -148,12 +155,13 @@ def transcribe(
         segments.append(seg_dict)
 
     elapsed = time.perf_counter() - t0
+    language = getattr(info, "language", "en") or "en"
     _log(
         on_progress,
         f"Transcription complete — {len(segments)} segments in {elapsed:.1f}s",
         "success",
     )
-    return segments
+    return segments, language
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

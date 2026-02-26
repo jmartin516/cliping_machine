@@ -24,11 +24,15 @@ _HIST_THRESHOLD = 0.55   # correlation below this = scene change
 _HIST_BINS = 64
 
 
+CheckCancelledCallback = Callable[[], None]
+
+
 def detect_scene_changes(
     video_path: str | Path,
     sample_interval: float = _SAMPLE_INTERVAL,
     threshold: float = _HIST_THRESHOLD,
     on_log: Optional[LogCallback] = None,
+    check_cancelled: Optional[CheckCancelledCallback] = None,
 ) -> list[float]:
     """
     Return timestamps (in seconds) where a scene change is detected.
@@ -59,6 +63,8 @@ def detect_scene_changes(
             break
 
         if frame_idx % frame_step == 0:
+            if check_cancelled:
+                check_cancelled()
             hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
             hist = cv2.calcHist(
                 [hsv], [0, 1], None,

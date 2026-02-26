@@ -470,13 +470,19 @@ def _unique_path(output_dir: Path, stem: str, index: int) -> Path:
 # ── Phase 1: Analyze (transcribe + select clips) ─────────────────────────────
 
 
+# Callable that raises if cancelled (no args, no return)
+CheckCancelledCallback = Callable[[], None]
+
+
 def analyze_video(
     video_path: str | Path,
     model_size: str = "base",
     clip_length: int = 45,
     max_clips: int = 5,
+    selection_mode: str = "algorithm",
     on_log: Optional[LogCallback] = None,
     on_progress: Optional[ProgressCallback] = None,
+    check_cancelled: Optional[CheckCancelledCallback] = None,
 ) -> list[ClipRegion]:
     """
     Transcribe, detect scene changes, and select clip regions.
@@ -487,17 +493,26 @@ def analyze_video(
         3. Detect scene changes  (65% - 85%)
         4. Select clip regions   (85% - 100%)
 
+    Args:
+        selection_mode: "algorithm" = volume/speech density, scene changes;
+                       "ai" = Llama 3.2-1B local LLM picks best moments.
+
     Returns:
         List of ClipRegion candidates.
     """
     from src.engine.ai_transcriber import load_model, transcribe
+    from src.engine.ai_clip_selector import select_clips_with_ai
     from src.engine.clip_selector import select_clips
     from src.engine.scene_detector import detect_scene_changes
 
+    if check_cancelled:
+        check_cancelled()
     if on_progress:
         on_progress(0.0, "Starting analysis…")
 
     # ── Step 1: audio extraction ─────────────────────────────────────
+    if check_cancelled:
+        check_cancelled()
     audio_path = extract_audio(video_path, on_log)
     if on_progress:
         on_progress(0.10, "Audio extracted")
@@ -506,11 +521,17 @@ def analyze_video(
     if on_progress:
         on_progress(0.12, "Loading Whisper model…")
 
+    if check_cancelled:
+        check_cancelled()
     model = load_model(model_size, on_progress=on_log)
     if on_progress:
         on_progress(0.18, "Transcribing audio…")
 
-    segments = transcribe(model, audio_path, on_progress=on_log)
+    if check_cancelled:
+        check_cancelled()
+    segments, language = transcribe(
+        model, audio_path, on_progress=on_log, check_cancelled=check_cancelled
+    )
     if on_progress:
         on_progress(0.65, f"Transcribed {len(segments)} segments")
 
@@ -524,10 +545,14 @@ def analyze_video(
         raise RuntimeError("Transcription produced no segments.")
 
     # ── Step 3: scene change detection ───────────────────────────────
+    if check_cancelled:
+        check_cancelled()
     if on_progress:
         on_progress(0.67, "Detecting scene changes…")
 
-    scene_changes = detect_scene_changes(video_path, on_log=on_log)
+    scene_changes = detect_scene_changes(
+        video_path, on_log=on_log, check_cancelled=check_cancelled
+    )
     if on_progress:
         on_progress(0.85, f"Found {len(scene_changes)} scene cuts")
 
@@ -536,13 +561,40 @@ def analyze_video(
     video_duration = source.duration
     source.close()
 
-    regions = select_clips(
-        segments,
-        video_duration=video_duration,
-        clip_length=clip_length,
-        max_clips=max_clips,
-        scene_changes=scene_changes,
-    )
+    if check_cancelled:
+        check_cancelled()
+    use_ai = selection_mode.lower() == "ai"
+    if use_ai:
+        # Hybrid: algorithm pre-filters candidates, AI re-ranks (avoids context overflow)
+        if on_progress:
+            on_progress(0.84, "Algorithm pre-filtering candidates…")
+        candidates = select_clips(
+            segments,
+            video_duration=video_duration,
+            clip_length=clip_length,
+            max_clips=max(15, max_clips * 3),
+            scene_changes=scene_changes,
+        )
+        if on_progress:
+            on_progress(0.86, "AI selecting best clips…")
+        regions = select_clips_with_ai(
+            candidates=candidates,
+            video_duration=video_duration,
+            max_clips=max_clips,
+            language=language,
+            on_log=on_log,
+            check_cancelled=check_cancelled,
+        )
+        if not regions:
+            regions = candidates[:max_clips]
+    else:
+        regions = select_clips(
+            segments,
+            video_duration=video_duration,
+            clip_length=clip_length,
+            max_clips=max_clips,
+            scene_changes=scene_changes,
+        )
 
     if not regions:
         _log(on_log, "No suitable clip regions found.", "error")
@@ -574,6 +626,7 @@ def render_selected_clips(
     background_video: Optional[str | Path] = None,
     on_log: Optional[LogCallback] = None,
     on_progress: Optional[ProgressCallback] = None,
+    check_cancelled: Optional[CheckCancelledCallback] = None,
 ) -> list[Path]:
     """Render only the user-selected clip regions."""
     output_dir = Path(output_dir).resolve()
@@ -584,6 +637,8 @@ def render_selected_clips(
     total = len(regions)
 
     for idx, region in enumerate(regions, 1):
+        if check_cancelled:
+            check_cancelled()
         pct = (idx - 1) / total
         start_m, start_s = divmod(int(region.start), 60)
         end_m, end_s = divmod(int(region.end), 60)

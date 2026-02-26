@@ -25,6 +25,7 @@ from typing import Optional
 
 import customtkinter as ctk
 
+from src.auth.license_storage import clear_license, load_license, save_license
 from src.auth.whop_api import ValidationFailure, ValidationSuccess, validate_license
 from src.gui.components import (
     COLORS,
@@ -73,7 +74,14 @@ def _apply_icon(window: ctk.CTk) -> None:
 class LoginView(ctk.CTkFrame):
     """Minimalist centered card with a license-key field and Activate button."""
 
-    def __init__(self, master: LocalClipperApp, **kwargs):
+    def __init__(
+        self,
+        master: LocalClipperApp,
+        initial_key: Optional[str] = None,
+        auto_validate: bool = False,
+        status_message: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(master, fg_color=COLORS["bg_dark"], **kwargs)
         self._app = master
 
@@ -139,8 +147,12 @@ class LoginView(ctk.CTkFrame):
             justify="center",
         )
         self._key_entry.grid(row=row, column=0, pady=(0, 16))
+        if initial_key:
+            self._key_entry.insert(0, initial_key)
         self._key_entry.bind("<Return>", lambda _: self._on_activate())
         row += 1
+
+        self._status_message = status_message
 
         self._activate_btn = ctk.CTkButton(
             card,
@@ -165,6 +177,21 @@ class LoginView(ctk.CTkFrame):
         )
         self._status.grid(row=row, column=0, pady=(0, 20))
 
+        if status_message and not (auto_validate and initial_key):
+            self._show_status(status_message, COLORS["error"])
+
+        if auto_validate and initial_key:
+            self._activate_btn.configure(state="disabled", text="Validating…")
+            self._show_status(
+                status_message or "Checking saved license…",
+                COLORS["text_muted"],
+            )
+            threading.Thread(
+                target=self._validate_worker,
+                args=(initial_key,),
+                daemon=True,
+            ).start()
+
     def _on_activate(self) -> None:
         key = self._key_entry.get().strip()
         if not key:
@@ -181,11 +208,20 @@ class LoginView(ctk.CTkFrame):
     def _handle_result(self, result: ValidationSuccess | ValidationFailure) -> None:
         self._activate_btn.configure(state="normal", text="Activate")
         if isinstance(result, ValidationSuccess):
+            save_license(result.license_key)
             self._show_status(result.message, COLORS["success"])
             logger.info("License validated — transitioning to setup")
             self.after(600, lambda: self._app.show_setup(result.license_key))
         else:
-            self._show_status(result.message, COLORS["error"])
+            if result.error_code == "LICENSE_EXPIRED":
+                clear_license()
+                self._show_status(
+                    "License expired. Please renew and enter your new license.",
+                    COLORS["error"],
+                )
+                self._key_entry.delete(0, "end")
+            else:
+                self._show_status(result.message, COLORS["error"])
             logger.warning("Validation failed [%s]: %s", result.error_code, result.message)
 
     def _show_status(self, text: str, color: str) -> None:
@@ -489,9 +525,50 @@ class DashboardView(ctk.CTkFrame):
         )
         self._clip_length_slider.grid(row=0, column=1, sticky="ew")
 
-        # ── Options row 2: num clips + toggles + generate ─────────────────
+        # ── Clip selection mode (Algorithm vs AI) — prominent section ────────
+        sel_frame = ctk.CTkFrame(
+            controls,
+            fg_color=COLORS["bg_input"],
+            corner_radius=10,
+            border_width=1,
+            border_color=COLORS["border"],
+        )
+        sel_frame.grid(row=3, column=0, **inner_pad, pady=(8, 8))
+        sel_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            sel_frame,
+            text="How to pick clips",
+            font=ctk.CTkFont(size=15, weight="bold"),
+            text_color=COLORS["text_primary"],
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(12, 8))
+
+        self._selection_mode_var = ctk.StringVar(value="algorithm")
+        self._selection_tabs = ctk.CTkSegmentedButton(
+            sel_frame,
+            values=["Algorithm", "AI"],
+            variable=self._selection_mode_var,
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=36,
+            fg_color=COLORS["bg_card"],
+            selected_color=COLORS["accent"],
+            selected_hover_color=COLORS["accent_hover"],
+            unselected_color=COLORS["bg_card"],
+            unselected_hover_color=COLORS["border"],
+        )
+        self._selection_tabs.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="w")
+        self._selection_tabs.set("Algorithm")
+
+        ctk.CTkLabel(
+            sel_frame,
+            text="Algorithm = volume/speech density · AI = picks best moments",
+            font=ctk.CTkFont(size=12),
+            text_color=COLORS["text_secondary"],
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=14, pady=(0, 12))
+
+        # ── Options row 3: num clips + toggles + generate ─────────────────
         row2 = ctk.CTkFrame(controls, fg_color="transparent")
-        row2.grid(row=3, column=0, **inner_pad, pady=(0, 4))
+        row2.grid(row=4, column=0, **inner_pad, pady=(0, 4))
         row2.grid_columnconfigure(0, weight=1)
         row2.grid_columnconfigure(1, weight=0)
         row2.grid_columnconfigure(2, weight=0)
@@ -570,6 +647,9 @@ class DashboardView(ctk.CTkFrame):
         )
         self._generate_btn.pack(anchor="se", pady=(18, 0))
 
+        self._pipeline_running = False
+        self._cancelled = False
+
         # ── Background video picker (hidden by default) ──────────────────
         self._bg_picker = PathSelector(
             controls,
@@ -620,6 +700,11 @@ class DashboardView(ctk.CTkFrame):
     def get_num_clips(self) -> int:
         return self._num_clips_slider.get()
 
+    def get_selection_mode(self) -> str:
+        """Return 'algorithm' or 'ai'."""
+        val = self._selection_mode_var.get()
+        return "ai" if val == "AI" else "algorithm"
+
     def get_subtitles_enabled(self) -> bool:
         return self._subtitles_var.get()
 
@@ -633,14 +718,34 @@ class DashboardView(ctk.CTkFrame):
         """Show/hide the background video file picker."""
         if self._bg_video_var.get():
             self._bg_picker.grid(
-                row=4, column=0, padx=16, sticky="ew", pady=(0, 8)
+                row=5, column=0, padx=16, sticky="ew", pady=(0, 8)
             )
         else:
             self._bg_picker.grid_remove()
 
     def _set_controls_enabled(self, enabled: bool) -> None:
+        """Enable/disable input controls. Cancel button stays enabled during run."""
         state = "normal" if enabled else "disabled"
         self._generate_btn.configure(state=state)
+
+    def _set_generate_button_idle(self) -> None:
+        """Reset button to normal 'Generate Clips' state."""
+        self._generate_btn.configure(
+            text="Generate Clips",
+            fg_color=COLORS["accent"],
+            hover_color=COLORS["accent_hover"],
+            command=self._on_generate,
+        )
+
+    def _set_generate_button_running(self) -> None:
+        """Show red Cancel button during pipeline (must stay enabled to cancel)."""
+        self._generate_btn.configure(
+            text="Cancel",
+            fg_color=COLORS["error"],
+            hover_color="#FF6B6B",
+            command=self._on_cancel,
+            state="normal",
+        )
 
     # ── Pipeline ─────────────────────────────────────────────────────────
 
@@ -676,7 +781,10 @@ class DashboardView(ctk.CTkFrame):
         self._console.write(f"Source: {source}", "info")
         self._console.write(f"Output: {output}", "info")
         self._console.write(f"Model:  {self.get_model_size()}", "info")
-        self._console.write(f"Clip length: {clip_length}s  |  Clips: {num_clips}", "info")
+        self._console.write(
+            f"Clip length: {clip_length}s  |  Clips: {num_clips}  |  Selection: {self.get_selection_mode().upper()}",
+            "info",
+        )
         self._console.write(f"Subtitles: {'ON' if subtitles else 'OFF'}", "info")
         self._console.write(
             f"Split Screen: {'ON' if bg_video else 'OFF'}"
@@ -685,16 +793,52 @@ class DashboardView(ctk.CTkFrame):
         )
 
         self._set_controls_enabled(False)
-        self._progress.reset("Starting…")
-        self._console.write("Launching pipeline…", "info")
+        self._progress.reset("Validating license…")
+        self._console.write("Validating license…", "info")
 
-        thread = threading.Thread(
-            target=self._pipeline_worker,
-            args=(source, output, self.get_model_size(),
-                  clip_length, num_clips, subtitles, is_yt, bg_video),
-            daemon=True,
+        selection_mode = self.get_selection_mode()
+        params = (
+            source, output, self.get_model_size(),
+            clip_length, num_clips, subtitles, is_yt, bg_video, selection_mode,
         )
-        thread.start()
+
+        def _validate_then_start() -> None:
+            result = validate_license(self._license_key)
+            def _on_result() -> None:
+                if isinstance(result, ValidationSuccess):
+                    self._pipeline_running = True
+                    self._cancelled = False
+                    self._set_generate_button_running()
+                    self._progress.reset("Starting…")
+                    self._console.write("Launching pipeline…", "info")
+                    threading.Thread(
+                        target=self._pipeline_worker,
+                        args=params,
+                        daemon=True,
+                    ).start()
+                elif result.error_code == "LICENSE_EXPIRED":
+                    clear_license()
+                    self._app._show_login(
+                        status_message="License expired. Please renew and enter your new license.",
+                    )
+                else:
+                    self._set_controls_enabled(True)
+                    self._set_generate_button_idle()
+                    self._console.write(result.message, "error")
+            self.after(0, _on_result)
+
+        threading.Thread(target=_validate_then_start, daemon=True).start()
+
+    def _on_cancel(self) -> None:
+        """Cancel the running pipeline."""
+        if self._pipeline_running:
+            self._cancelled = True
+            self._console.write("Cancelling…", "warning")
+
+    def _check_cancelled(self) -> None:
+        """Raise if user cancelled. Call from progress callbacks."""
+        if self._cancelled:
+            raise RuntimeError("Cancelled by user")
 
     def _pipeline_worker(
         self,
@@ -706,6 +850,7 @@ class DashboardView(ctk.CTkFrame):
         subtitles: bool,
         is_youtube: bool,
         background_video: Optional[str] = None,
+        selection_mode: str = "algorithm",
     ) -> None:
         """Runs the full analyze → render pipeline on a daemon thread."""
         from src.engine.video_processor import analyze_video, render_selected_clips
@@ -718,17 +863,20 @@ class DashboardView(ctk.CTkFrame):
                 from src.engine.yt_downloader import download_video
 
                 def _yt_progress(value: float, status: str) -> None:
+                    self._check_cancelled()
                     self._progress.set_progress(value * 0.15, status)
 
                 downloaded = download_video(
                     url=source,
                     on_log=self._console.write,
                     on_progress=_yt_progress,
+                    check_cancelled=self._check_cancelled,
                 )
                 video_path = str(downloaded)
 
             # ── Analyze (15 % – 50 %) or (0 % – 50 %) ──────────────────
             def _analysis_progress(value: float, status: str) -> None:
+                self._check_cancelled()
                 offset = 0.15 if is_youtube else 0.0
                 scale = 0.35 if is_youtube else 0.50
                 self._progress.set_progress(offset + value * scale, status)
@@ -738,12 +886,15 @@ class DashboardView(ctk.CTkFrame):
                 model_size=model_size,
                 clip_length=clip_length,
                 max_clips=max_clips,
+                selection_mode=selection_mode,
                 on_log=self._console.write,
                 on_progress=_analysis_progress,
+                check_cancelled=self._check_cancelled,
             )
 
-            # ── Render (50 % – 100 %) ──────────────────────────────────
+            # ── Render (50 % – 100 %) — both modes, fully automatic ─────
             def _render_progress(value: float, status: str) -> None:
+                self._check_cancelled()
                 self._progress.set_progress(0.50 + value * 0.50, status)
 
             result_paths = render_selected_clips(
@@ -754,6 +905,7 @@ class DashboardView(ctk.CTkFrame):
                 background_video=background_video,
                 on_log=self._console.write,
                 on_progress=_render_progress,
+                check_cancelled=self._check_cancelled,
             )
 
             self._console.write(
@@ -762,7 +914,6 @@ class DashboardView(ctk.CTkFrame):
             for p in result_paths:
                 self._console.write(f"  → {p}", "success")
 
-            # Clean up the full downloaded video (YouTube only)
             if is_youtube:
                 try:
                     Path(video_path).unlink(missing_ok=True)
@@ -770,11 +921,41 @@ class DashboardView(ctk.CTkFrame):
                 except Exception:
                     pass
 
+            if not self._cancelled:
+                self.after_idle(
+                    lambda: self._on_pipeline_complete(len(result_paths))
+                )
+
+        except RuntimeError as exc:
+            if "Cancelled" in str(exc):
+                self._console.write("Cancelled.", "warning")
+                self.after_idle(lambda: self._on_pipeline_complete(0, cancelled=True))
+            else:
+                raise
         except Exception as exc:
             self._console.write(f"Pipeline failed: {exc}", "error")
             logger.exception("Pipeline error")
+            self.after_idle(lambda: self._on_pipeline_complete(0, failed=True))
         finally:
-            self.after_idle(lambda: self._set_controls_enabled(True))
+            self._pipeline_running = False
+            self.after_idle(self._on_pipeline_finished)
+
+    def _on_pipeline_complete(
+        self, num_clips: int, cancelled: bool = False, failed: bool = False
+    ) -> None:
+        """Reset UI and show completion message."""
+        if cancelled:
+            self._progress.reset("Cancelled")
+        elif failed:
+            self._progress.reset("Failed")
+        else:
+            self._progress.reset("Clips generated")
+            self._console.write("Clips generated.", "success")
+
+    def _on_pipeline_finished(self) -> None:
+        """Re-enable controls and reset button to Generate."""
+        self._set_controls_enabled(True)
+        self._set_generate_button_idle()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -803,7 +984,15 @@ class LocalClipperApp(ctk.CTk):
         if _DEV_SKIP_LOGIN:
             self.show_setup("dev-key-local")
         else:
-            self._show_login()
+            saved = load_license()
+            if saved:
+                self._show_login(
+                    initial_key=saved,
+                    auto_validate=True,
+                    status_message="Checking saved license…",
+                )
+            else:
+                self._show_login()
 
     def _swap_view(self, new_view: ctk.CTkFrame) -> None:
         if self._current_view is not None:
@@ -811,8 +1000,20 @@ class LocalClipperApp(ctk.CTk):
         new_view.pack(fill="both", expand=True)
         self._current_view = new_view
 
-    def _show_login(self) -> None:
-        self._swap_view(LoginView(self))
+    def _show_login(
+        self,
+        initial_key: Optional[str] = None,
+        auto_validate: bool = False,
+        status_message: Optional[str] = None,
+    ) -> None:
+        self._swap_view(
+            LoginView(
+                self,
+                initial_key=initial_key,
+                auto_validate=auto_validate,
+                status_message=status_message,
+            )
+        )
 
     def show_setup(self, license_key: str) -> None:
         """Show first-run setup (FFmpeg + optional Whisper pre-cache)."""
