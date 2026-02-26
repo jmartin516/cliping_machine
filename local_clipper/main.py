@@ -37,6 +37,50 @@ if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 
+_lock_file_handle = None  # Keep open so lock persists for process lifetime
+
+
+def _try_single_instance_lock() -> bool:
+    """
+    Acquire a single-instance lock. Return True if we got it (first instance).
+    Return False if another instance is already running — caller should exit.
+    """
+    global _lock_file_handle
+    if str(_ROOT) not in sys.path:
+        sys.path.insert(0, str(_ROOT))
+    from src.utils.paths import get_app_data_dir
+    lock_file = get_app_data_dir() / ".single_instance.lock"
+    try:
+        if sys.platform == "win32":
+            import msvcrt
+            _lock_file_handle = open(lock_file, "w")
+            try:
+                msvcrt.locking(_lock_file_handle.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError:
+                _lock_file_handle.close()
+                _lock_file_handle = None
+                return False
+            return True
+        else:
+            import fcntl
+            _lock_file_handle = open(lock_file, "w")
+            try:
+                fcntl.lockf(_lock_file_handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (IOError, OSError):
+                _lock_file_handle.close()
+                _lock_file_handle = None
+                return False
+            return True
+    except Exception:
+        if _lock_file_handle:
+            try:
+                _lock_file_handle.close()
+            except Exception:
+                pass
+            _lock_file_handle = None
+        return True  # If lock fails for other reasons, allow launch
+
+
 def _check_tk_version() -> bool:
     """
     CustomTkinter requires Tk 8.6+ to render. macOS system Python uses Tk 8.5,
@@ -65,6 +109,9 @@ def _configure_logging() -> None:
 
 
 def main() -> None:
+    if not _try_single_instance_lock():
+        sys.exit(0)  # Another instance already running
+
     if not _check_tk_version():
         # Different message for bundled app vs running from source
         if getattr(sys, "frozen", False):

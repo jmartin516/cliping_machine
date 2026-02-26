@@ -120,6 +120,7 @@ def transcribe(
         beam_size=5,
         vad_filter=True,
         vad_parameters=dict(min_silence_duration_ms=500),
+        word_timestamps=True,
     )
 
     _log(
@@ -133,13 +134,18 @@ def transcribe(
         text = seg.text.strip()
         if not text:
             continue
-        segments.append(
-            {
-                "start": round(seg.start, 3),
-                "end": round(seg.end, 3),
-                "text": text.upper(),
-            }
-        )
+        seg_dict: dict = {
+            "start": round(seg.start, 3),
+            "end": round(seg.end, 3),
+            "text": text.upper(),
+        }
+        if seg.words:
+            seg_dict["words"] = [
+                {"word": w.word.strip(), "start": round(w.start, 3), "end": round(w.end, 3)}
+                for w in seg.words
+                if w.word.strip()
+            ]
+        segments.append(seg_dict)
 
     elapsed = time.perf_counter() - t0
     _log(

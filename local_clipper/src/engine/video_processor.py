@@ -143,6 +143,9 @@ def _build_interactive_subtitles(
     Each segment is split into small groups of words. Within each group the
     current word is highlighted while the rest stay white, producing a
     karaoke-style reading effect.
+
+    When segments have word-level timestamps (from word_timestamps=True),
+    uses precise timing for each word — improves sync for slow/fast speakers.
     """
     font_size = max(32, int(clip_width * 0.054))
     font = _find_bold_font(font_size)
@@ -151,43 +154,59 @@ def _build_interactive_subtitles(
     clips: list[ImageClip] = []
 
     for seg in segments:
-        text = _clean_text(seg["text"])
-        words = text.split()
-        if not words:
+        word_list = seg.get("words")
+        if word_list:
+            words = []
+            word_times = []
+            for w in word_list:
+                if not w.get("word"):
+                    continue
+                cleaned = _clean_text(w["word"]).upper()
+                if cleaned:
+                    words.append(cleaned)
+                    word_times.append((w["start"], w["end"]))
+        else:
+            text = _clean_text(seg["text"])
+            words = text.split()
+            seg_start = seg["start"]
+            seg_duration = seg["end"] - seg_start
+            if seg_duration <= 0:
+                continue
+            time_per_word = seg_duration / len(words)
+            word_times = [
+                (seg_start + i * time_per_word, seg_start + (i + 1) * time_per_word)
+                for i in range(len(words))
+            ]
+
+        if not words or len(words) != len(word_times):
             continue
 
-        seg_start: float = seg["start"]
-        seg_duration: float = seg["end"] - seg_start
-        if seg_duration <= 0:
-            continue
-
-        time_per_word = seg_duration / len(words)
-
-        groups: list[list[str]] = []
+        groups: list[list[tuple[str, float, float]]] = []
         for i in range(0, len(words), _WORDS_PER_GROUP):
-            groups.append(words[i : i + _WORDS_PER_GROUP])
+            group_words = words[i : i + _WORDS_PER_GROUP]
+            group_times = word_times[i : i + _WORDS_PER_GROUP]
+            groups.append(list(zip(group_words, [t[0] for t in group_times], [t[1] for t in group_times])))
 
-        global_word_idx = 0
         for group in groups:
-            for local_idx in range(len(group)):
-                t_start = seg_start + global_word_idx * time_per_word
+            for local_idx, (word, t_start, t_end) in enumerate(group):
+                duration = max(0.05, t_end - t_start)
+                group_words_only = [w[0] for w in group]
 
                 frame_rgba = _render_word_group_frame(
-                    group, local_idx, clip_width, font
+                    group_words_only, local_idx, clip_width, font
                 )
                 rgb = frame_rgba[:, :, :3]
                 alpha = frame_rgba[:, :, 3].astype(np.float64) / 255.0
 
-                mask = ImageClip(alpha, ismask=True).set_duration(time_per_word)
+                mask = ImageClip(alpha, ismask=True).set_duration(duration)
                 clip = (
                     ImageClip(rgb)
                     .set_mask(mask)
                     .set_position((0, y_pos))
                     .set_start(t_start)
-                    .set_duration(time_per_word)
+                    .set_duration(duration)
                 )
                 clips.append(clip)
-                global_word_idx += 1
 
     _log(on_log, f"Created {len(clips)} interactive subtitle frames", "info")
     return clips

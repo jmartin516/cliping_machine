@@ -15,25 +15,33 @@ Only requires ``opencv-python-headless`` (already a project dependency).
 from __future__ import annotations
 
 import logging
+import sys
 from typing import Callable, Optional
 
 import cv2
 import numpy as np
 from moviepy.editor import VideoClip, VideoFileClip
 
+from src.utils.paths import get_base_path
+
 logger = logging.getLogger(__name__)
 
 LogCallback = Callable[[str, str], None]
 
-_SAMPLE_INTERVAL = 0.25          # seconds between analysed frames
+_SAMPLE_INTERVAL = 0.5           # seconds between analysed frames (fewer = less jumpy)
 _DOWNSCALE_WIDTH = 320           # resize width for face detection (speed)
-_EMA_ALPHA = 0.25                # smoothing factor (lower = smoother pan)
+_EMA_ALPHA = 0.10                # smoothing factor (lower = smoother pan, less dizzy)
 _FACE_SCALE_FACTOR = 1.15
 _FACE_MIN_NEIGHBOURS = 5
 _FACE_MIN_SIZE_RATIO = 0.06     # min face size as fraction of frame width
 _ZOOM_OUT_FACTOR = 1.15          # capture 15 % wider than 9:16, then resize
 
-_CASCADE_FILE = cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
+
+def _get_cascade_path() -> str:
+    """Return path to haarcascade_frontalface_default.xml (works when bundled)."""
+    if getattr(sys, "frozen", False):
+        return str(get_base_path() / "cv2" / "data" / "haarcascade_frontalface_default.xml")
+    return cv2.data.haarcascades + "haarcascade_frontalface_default.xml"
 
 
 # ── Trajectory computation ───────────────────────────────────────────────────
@@ -76,7 +84,7 @@ def compute_crop_trajectory(
         _log(on_log, "Source width <= crop width — no panning needed", "debug")
         return []
 
-    cascade = cv2.CascadeClassifier(_CASCADE_FILE)
+    cascade = cv2.CascadeClassifier(_get_cascade_path())
     if cascade.empty():
         cap.release()
         _log(on_log, "Haar cascade not found — falling back to centre crop", "warning")
@@ -167,7 +175,7 @@ def _detect_faces(
     src_w: int,
     min_face: int,
 ) -> Optional[int]:
-    """Return the x-centre of detected faces in the original frame, or None."""
+    """Return the x-centre of the largest face (main subject), or None."""
     faces = cascade.detectMultiScale(
         small_gray,
         scaleFactor=_FACE_SCALE_FACTOR,
@@ -177,8 +185,10 @@ def _detect_faces(
     if len(faces) == 0:
         return None
 
-    centres = [(x + w / 2) / scale for (x, y, w, h) in faces]
-    return int(np.mean(centres))
+    # Use largest face only — avoids jumpy pan when 2+ faces
+    largest = max(faces, key=lambda f: f[2] * f[3])
+    x, y, w, h = largest
+    return int((x + w / 2) / scale)
 
 
 # ── Motion fallback ──────────────────────────────────────────────────────────

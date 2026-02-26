@@ -51,6 +51,13 @@ for _p in sys.path:
         datas.append((str(fw_assets), "faster_whisper/assets"))
         break
 
+# Bundle OpenCV haarcascades for face detection (smart crop)
+for _p in sys.path:
+    cv2_data = Path(_p) / "cv2" / "data"
+    if cv2_data.exists() and (cv2_data / "haarcascade_frontalface_default.xml").exists():
+        datas.append((str(cv2_data), "cv2/data"))
+        break
+
 # Hidden imports for faster-whisper, ctranslate2, moviepy, etc.
 hiddenimports = [
     "faster_whisper",
@@ -85,6 +92,10 @@ try:
         pass
     try:
         datas += collect_data_files("static_ffmpeg")
+    except Exception:
+        pass
+    try:
+        datas += collect_data_files("faster_whisper")
     except Exception:
         pass
 except ImportError:
