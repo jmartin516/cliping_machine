@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import re
 import tempfile
 import time
@@ -364,7 +365,10 @@ def _build_split_screen(
     if bg_cropped.duration < clip_dur:
         bg_cropped = bg_cropped.fx(vfx.loop, duration=clip_dur)
     else:
-        bg_cropped = bg_cropped.subclip(0, clip_dur)
+        # Pick a random moment so each clip gets a different background segment
+        max_start = max(0.0, bg_cropped.duration - clip_dur)
+        start_t = random.uniform(0.0, max_start)
+        bg_cropped = bg_cropped.subclip(start_t, start_t + clip_dur)
 
     bg_cropped = bg_cropped.set_position((0, top_h))
 
@@ -479,23 +483,18 @@ def analyze_video(
     model_size: str = "base",
     clip_length: int = 45,
     max_clips: int = 5,
-    selection_mode: str = "algorithm",
     on_log: Optional[LogCallback] = None,
     on_progress: Optional[ProgressCallback] = None,
     check_cancelled: Optional[CheckCancelledCallback] = None,
 ) -> list[ClipRegion]:
     """
-    Transcribe, detect scene changes, and select clip regions.
+    Transcribe, detect scene changes, and select clip regions with AI.
 
     Steps:
         1. Extract audio         (0%  - 10%)
         2. Transcribe            (10% - 65%)
         3. Detect scene changes  (65% - 85%)
-        4. Select clip regions   (85% - 100%)
-
-    Args:
-        selection_mode: "algorithm" = volume/speech density, scene changes;
-                       "ai" = Llama 3.2-1B local LLM picks best moments.
+        4. Select clip regions   (85% - 100%) — Llama 3.2-1B re-ranks candidates
 
     Returns:
         List of ClipRegion candidates.
@@ -535,11 +534,6 @@ def analyze_video(
     if on_progress:
         on_progress(0.65, f"Transcribed {len(segments)} segments")
 
-    try:
-        Path(audio_path).unlink(missing_ok=True)
-    except Exception:
-        pass
-
     if not segments:
         _log(on_log, "No speech detected — aborting.", "error")
         raise RuntimeError("Transcription produced no segments.")
@@ -563,38 +557,34 @@ def analyze_video(
 
     if check_cancelled:
         check_cancelled()
-    use_ai = selection_mode.lower() == "ai"
-    if use_ai:
-        # Hybrid: algorithm pre-filters candidates, AI re-ranks (avoids context overflow)
-        if on_progress:
-            on_progress(0.84, "Algorithm pre-filtering candidates…")
-        candidates = select_clips(
-            segments,
-            video_duration=video_duration,
-            clip_length=clip_length,
-            max_clips=max(15, max_clips * 3),
-            scene_changes=scene_changes,
-        )
-        if on_progress:
-            on_progress(0.86, "AI selecting best clips…")
-        regions = select_clips_with_ai(
-            candidates=candidates,
-            video_duration=video_duration,
-            max_clips=max_clips,
-            language=language,
-            on_log=on_log,
-            check_cancelled=check_cancelled,
-        )
-        if not regions:
-            regions = candidates[:max_clips]
-    else:
-        regions = select_clips(
-            segments,
-            video_duration=video_duration,
-            clip_length=clip_length,
-            max_clips=max_clips,
-            scene_changes=scene_changes,
-        )
+    # Hybrid: algorithm pre-filters candidates, AI re-ranks (avoids context overflow)
+    if on_progress:
+        on_progress(0.84, "Pre-filtering candidates…")
+    candidates = select_clips(
+        segments,
+        video_duration=video_duration,
+        clip_length=clip_length,
+        max_clips=max(15, max_clips * 3),
+        scene_changes=scene_changes,
+    )
+    if on_progress:
+        on_progress(0.86, "AI selecting best clips…")
+    regions = select_clips_with_ai(
+        candidates=candidates,
+        video_duration=video_duration,
+        max_clips=max_clips,
+        language=language,
+        audio_path=Path(audio_path),
+        on_log=on_log,
+        check_cancelled=check_cancelled,
+    )
+    if not regions:
+        regions = candidates[:max_clips]
+
+    try:
+        Path(audio_path).unlink(missing_ok=True)
+    except Exception:
+        pass
 
     if not regions:
         _log(on_log, "No suitable clip regions found.", "error")

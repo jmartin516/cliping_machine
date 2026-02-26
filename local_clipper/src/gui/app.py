@@ -525,50 +525,9 @@ class DashboardView(ctk.CTkFrame):
         )
         self._clip_length_slider.grid(row=0, column=1, sticky="ew")
 
-        # ── Clip selection mode (Algorithm vs AI) — prominent section ────────
-        sel_frame = ctk.CTkFrame(
-            controls,
-            fg_color=COLORS["bg_input"],
-            corner_radius=10,
-            border_width=1,
-            border_color=COLORS["border"],
-        )
-        sel_frame.grid(row=3, column=0, **inner_pad, pady=(8, 8))
-        sel_frame.grid_columnconfigure(1, weight=1)
-
-        ctk.CTkLabel(
-            sel_frame,
-            text="How to pick clips",
-            font=ctk.CTkFont(size=15, weight="bold"),
-            text_color=COLORS["text_primary"],
-        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(12, 8))
-
-        self._selection_mode_var = ctk.StringVar(value="algorithm")
-        self._selection_tabs = ctk.CTkSegmentedButton(
-            sel_frame,
-            values=["Algorithm", "AI"],
-            variable=self._selection_mode_var,
-            font=ctk.CTkFont(size=14, weight="bold"),
-            height=36,
-            fg_color=COLORS["bg_card"],
-            selected_color=COLORS["accent"],
-            selected_hover_color=COLORS["accent_hover"],
-            unselected_color=COLORS["bg_card"],
-            unselected_hover_color=COLORS["border"],
-        )
-        self._selection_tabs.grid(row=1, column=0, padx=14, pady=(0, 8), sticky="w")
-        self._selection_tabs.set("Algorithm")
-
-        ctk.CTkLabel(
-            sel_frame,
-            text="Algorithm = volume/speech density · AI = picks best moments",
-            font=ctk.CTkFont(size=12),
-            text_color=COLORS["text_secondary"],
-        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=14, pady=(0, 12))
-
-        # ── Options row 3: num clips + toggles + generate ─────────────────
+        # ── Options row 2: num clips + toggles + generate ─────────────────
         row2 = ctk.CTkFrame(controls, fg_color="transparent")
-        row2.grid(row=4, column=0, **inner_pad, pady=(0, 4))
+        row2.grid(row=3, column=0, **inner_pad, pady=(0, 4))
         row2.grid_columnconfigure(0, weight=1)
         row2.grid_columnconfigure(1, weight=0)
         row2.grid_columnconfigure(2, weight=0)
@@ -700,11 +659,6 @@ class DashboardView(ctk.CTkFrame):
     def get_num_clips(self) -> int:
         return self._num_clips_slider.get()
 
-    def get_selection_mode(self) -> str:
-        """Return 'algorithm' or 'ai'."""
-        val = self._selection_mode_var.get()
-        return "ai" if val == "AI" else "algorithm"
-
     def get_subtitles_enabled(self) -> bool:
         return self._subtitles_var.get()
 
@@ -782,7 +736,7 @@ class DashboardView(ctk.CTkFrame):
         self._console.write(f"Output: {output}", "info")
         self._console.write(f"Model:  {self.get_model_size()}", "info")
         self._console.write(
-            f"Clip length: {clip_length}s  |  Clips: {num_clips}  |  Selection: {self.get_selection_mode().upper()}",
+            f"Clip length: {clip_length}s  |  Clips: {num_clips}  |  Selection: AI",
             "info",
         )
         self._console.write(f"Subtitles: {'ON' if subtitles else 'OFF'}", "info")
@@ -796,10 +750,9 @@ class DashboardView(ctk.CTkFrame):
         self._progress.reset("Validating license…")
         self._console.write("Validating license…", "info")
 
-        selection_mode = self.get_selection_mode()
         params = (
             source, output, self.get_model_size(),
-            clip_length, num_clips, subtitles, is_yt, bg_video, selection_mode,
+            clip_length, num_clips, subtitles, is_yt, bg_video,
         )
 
         def _validate_then_start() -> None:
@@ -850,7 +803,6 @@ class DashboardView(ctk.CTkFrame):
         subtitles: bool,
         is_youtube: bool,
         background_video: Optional[str] = None,
-        selection_mode: str = "algorithm",
     ) -> None:
         """Runs the full analyze → render pipeline on a daemon thread."""
         from src.engine.video_processor import analyze_video, render_selected_clips
@@ -886,7 +838,6 @@ class DashboardView(ctk.CTkFrame):
                 model_size=model_size,
                 clip_length=clip_length,
                 max_clips=max_clips,
-                selection_mode=selection_mode,
                 on_log=self._console.write,
                 on_progress=_analysis_progress,
                 check_cancelled=self._check_cancelled,

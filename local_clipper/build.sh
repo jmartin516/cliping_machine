@@ -54,6 +54,26 @@ source .venv/bin/activate
 echo "Installing dependencies..."
 pip install -q -r requirements.txt pyinstaller
 
+# Verify mandatory packages (numpy, llama-cpp-python) are importable
+echo "Verifying mandatory packages..."
+python -c "
+import sys
+err = []
+try:
+    import numpy
+except ImportError:
+    err.append('numpy')
+try:
+    import llama_cpp
+except ImportError:
+    err.append('llama-cpp-python')
+if err:
+    print('ERROR: Missing mandatory packages:', ', '.join(err))
+    print('Run: pip install -r requirements.txt')
+    sys.exit(1)
+print('  numpy, llama_cpp OK')
+"
+
 # Pre-download FFmpeg for bundling (no download on first launch)
 echo "Pre-downloading FFmpeg..."
 python scripts/setup_ffmpeg_bundle.py

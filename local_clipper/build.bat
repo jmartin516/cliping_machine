@@ -28,6 +28,15 @@ REM Install dependencies
 echo Installing dependencies...
 pip install -q -r requirements.txt pyinstaller
 
+REM Verify mandatory packages (numpy, llama-cpp-python)
+echo Verifying mandatory packages...
+python -c "import numpy; import llama_cpp; print('  numpy, llama_cpp OK')"
+if errorlevel 1 (
+    echo ERROR: Missing numpy or llama-cpp-python. Run: pip install -r requirements.txt
+    pause
+    exit /b 1
+)
+
 REM Pre-download FFmpeg for bundling (no download on first launch)
 echo Pre-downloading FFmpeg...
 python scripts\setup_ffmpeg_bundle.py

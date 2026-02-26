@@ -1,11 +1,15 @@
 # CustosAI Clipper — Pinned Dependencies
 # Python 3.10+
+#
+# MANDATORY for build (PyInstaller bundles these into the app):
+#   - numpy          → video/audio, AI energy analysis (RMS)
+#   - llama-cpp-python → AI clip selection (Llama 3.2-1B)
 
 # ── GUI ──────────────────────────────────────────────────────────────
 customtkinter==5.2.1
 Pillow==10.4.0
 
-# ── Video / Audio Engine ─────────────────────────────────────────────
+# ── Video / Audio Engine (numpy REQUIRED) ────────────────────────────
 numpy>=1.24.0,<2.0.0
 moviepy==1.0.3
 static-ffmpeg>=3.0
@@ -17,7 +21,7 @@ opencv-python-headless>=4.10.0
 faster-whisper==1.0.3
 ctranslate2==4.4.0
 
-# ── AI Clip Selection (Llama 3.2-1B) ───────────────────────────────────
+# ── AI Clip Selection (llama-cpp-python REQUIRED) ─────────────────────
 llama-cpp-python>=0.2.0
 huggingface_hub>=0.20.0
 

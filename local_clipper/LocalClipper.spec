@@ -77,6 +77,9 @@ hiddenimports = [
     "static_ffmpeg.run",
     "requests",
     "dotenv",
+    "llama_cpp",
+    "huggingface_hub",
+    "src.engine.ai_clip_selector",
 ]
 
 # Collect submodules for packages that use dynamic imports

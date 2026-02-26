@@ -122,38 +122,157 @@ def _lang_name(code: str) -> str:
     return _LANG_NAMES.get(code.lower(), code.upper() if code else "unknown")
 
 
+# Hook keywords (English) — segments starting with these get priority
+_HOOK_KEYWORDS = frozenset({
+    "incredible", "mistake", "secret", "trick", "why", "here's", "watch",
+    "listen", "important", "never", "always", "everyone", "nobody", "wrong",
+    "right", "truth", "lie", "actually", "really", "best", "worst", "first",
+    "last", "only", "every", "nobody", "everyone", "stop", "wait", "look",
+})
+
+_DEAD_AIR_THRESHOLD_S = 1.5  # Segments starting with silence > this get penalized
+
+
+def _prioritize_candidates(
+    candidates: list[ClipRegion],
+    audio_path: Optional[Path] = None,
+) -> list[ClipRegion]:
+    """
+    Pre-AI prioritization: keyword boost, dead air filter, energy (RMS) boost.
+    Reorders candidates so the AI sees the most promising ones first.
+    """
+    if not candidates:
+        return []
+
+    # Compute energy (RMS) per region if we have audio
+    energy_scores: list[float] = []
+    if audio_path and audio_path.exists():
+        try:
+            energy_scores = _compute_rms_per_regions(audio_path, candidates)
+        except Exception as e:
+            logger.debug("RMS analysis skipped: %s", e)
+            energy_scores = [0.0] * len(candidates)
+
+    if len(energy_scores) != len(candidates):
+        energy_scores = [0.0] * len(candidates)
+
+    # Baseline: median energy for "normal" segments
+    baseline = 0.0
+    if energy_scores:
+        sorted_e = sorted(energy_scores)
+        baseline = sorted_e[len(sorted_e) // 2] if sorted_e else 0.0
+
+    scored: list[tuple[float, int, ClipRegion]] = []
+    for i, region in enumerate(candidates):
+        score = 0.0
+
+        # Keyword boost: first words of first segment
+        text_parts = [s.get("text", "").strip() for s in region.segments if s.get("text")]
+        first_text = " ".join(text_parts).lower()[:80]
+        first_words = set(first_text.split()[:5])
+        if first_words & _HOOK_KEYWORDS:
+            score += 2.0
+
+        # Dead air: penalize if first segment starts late (silence at region start)
+        first_speech_start = None
+        for seg in region.segments:
+            seg_start = seg.get("start")
+            if seg_start is not None:
+                first_speech_start = seg_start
+                break
+        if first_speech_start is not None and first_speech_start > _DEAD_AIR_THRESHOLD_S:
+            score -= 1.5
+
+        # Energy boost: +20% above baseline (laughter, emphasis)
+        if baseline > 0 and energy_scores[i] > baseline * 1.2:
+            score += 1.5
+
+        scored.append((score, i, region))
+
+    # Sort by score descending (best first), then by original index for ties
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    return [r for _, _, r in scored]
+
+
+def _compute_rms_per_regions(audio_path: Path, regions: list[ClipRegion]) -> list[float]:
+    """Compute RMS (loudness) for each region. Returns list of floats.
+    Returns [] if numpy is not available (energy boost skipped)."""
+    try:
+        import numpy as np
+    except ImportError:
+        logger.warning("numpy not available — skipping RMS energy analysis")
+        return []
+
+    import wave
+    with wave.open(str(audio_path), "rb") as wav:
+        sr = wav.getframerate()
+        nch = wav.getnchannels()
+        n_frames = wav.getnframes()
+        data = wav.readframes(n_frames)
+
+    samples = np.frombuffer(data, dtype=np.int16)
+    if nch == 2:
+        samples = samples[::2]
+    samples = samples.astype(np.float32) / 32768.0
+
+    result = []
+    for r in regions:
+        start_samp = int(r.start * sr)
+        end_samp = int(r.end * sr)
+        start_samp = max(0, min(start_samp, len(samples)))
+        end_samp = max(start_samp, min(end_samp, len(samples)))
+        chunk = samples[start_samp:end_samp]
+        if len(chunk) == 0:
+            result.append(0.0)
+            continue
+        rms = float(np.sqrt(np.mean(chunk ** 2)))
+        result.append(rms)
+    return result
+
+
 def _build_prompt_from_candidates(
     candidates: list[ClipRegion],
     video_duration: float,
     max_clips: int,
     language: str,
 ) -> str:
-    """Build prompt from pre-filtered algorithm candidates. Keeps context small."""
+    """
+    Build prompt with Llama 3 chat format. English prompt for best results
+    with English-speaking users. 300-char limit per candidate.
+    """
     lang_name = _lang_name(language)
     lines = []
     for i, region in enumerate(candidates, 1):
-        text_parts = [s.get("text", "").strip() for s in region.segments if s.get("text")]
-        text = " ".join(text_parts)[:200]  # Limit per candidate
+        text = " ".join([s.get("text", "").strip() for s in region.segments])[:300]
         if not text:
             text = "(no speech)"
-        lines.append(f"{i}. [{region.start:.1f}s - {region.end:.1f}s] {text}")
+        dur = region.end - region.start
+        lines.append(f"ID: {i} | Duration: {dur:.1f}s | Text: {text}")
 
     candidates_text = "\n".join(lines)
 
-    return f"""You are a clip selection assistant for short-form vertical videos (TikTok, Reels, Shorts).
+    system_content = f"""You are an expert Social Media Video Editor (TikTok, Reels, Shorts). Your goal is to identify segments with the highest "Virality Score" from a transcript in {lang_name}.
 
-The transcript is in {lang_name}. Pick the {max_clips} best segments for clips.
-Prioritize: hooks, punchlines, key insights, emotional moments, clear narratives, viral-worthy moments.
+CRITERIA FOR SELECTION:
+1. THE HOOK: Does it start with a bold statement, a surprising fact, or an emotional peak in the first 2 seconds?
+2. RETENTION: Is the segment self-contained? Does it deliver a "Value Bomb", a punchline, or an "Aha!" moment?
+3. PACING: Avoid segments with long silence or filler words at the start.
+4. TRANSITIONS: Pick segments that have a clear beginning and a satisfying end.
 
-VIDEO DURATION: {video_duration:.1f} seconds
+INSTRUCTIONS:
+- Review the {len(candidates)} candidate segments provided.
+- Select the {max_clips} best ones.
+- Return ONLY a JSON array of the chosen IDs. Example: [2, 5, 12]
+- NO CONVERSATION. NO EXPLANATIONS. ONLY THE JSON ARRAY."""
 
-CANDIDATE SEGMENTS (pick the best {max_clips} by number):
+    user_content = f"""VIDEO DURATION: {video_duration:.1f}s
+CANDIDATES:
 ---
 {candidates_text}
 ---
+Selection:"""
 
-Return ONLY a JSON array of the segment numbers you chose, e.g. [3, 1, 7] for segments 3, 1, 7.
-Pick exactly {max_clips} segments. No other text."""
+    return system_content, user_content
 
 
 def _parse_llm_response_indices(response: str, num_candidates: int) -> list[int]:
@@ -184,17 +303,21 @@ def select_clips_with_ai(
     video_duration: float,
     max_clips: int = 5,
     language: str = "en",
+    audio_path: Optional[Path] = None,
     on_log: Optional[LogCallback] = None,
     check_cancelled: Optional[CheckCancelledCallback] = None,
 ) -> list[ClipRegion]:
     """
     Use Llama 3.2-1B to re-rank algorithm candidates. Keeps prompt small.
+    Pre-IA prioritization (keyword boost, dead air filter, energy) reorders
+    candidates before sending to the model.
 
     Args:
         candidates: Pre-filtered ClipRegions from algorithm (e.g. 15).
         video_duration: Total video length in seconds.
         max_clips: Maximum number of clips to return.
         language: Detected language code (e.g. "en", "es").
+        audio_path: Optional path to WAV for RMS energy analysis.
         on_log: Optional callback for UI updates.
 
     Returns:
@@ -202,6 +325,12 @@ def select_clips_with_ai(
     """
     if not candidates or video_duration <= 0:
         return []
+
+    if check_cancelled:
+        check_cancelled()
+
+    # Pre-IA prioritization: keyword boost, dead air, energy
+    candidates = _prioritize_candidates(candidates, audio_path)
 
     if check_cancelled:
         check_cancelled()
@@ -222,10 +351,11 @@ def select_clips_with_ai(
             model_path=str(model_path),
             n_ctx=4096,
             n_threads=4,
+            n_gpu_layers=-1,
             verbose=False,
         )
 
-    prompt = _build_prompt_from_candidates(
+    system_content, user_content = _build_prompt_from_candidates(
         candidates, video_duration, max_clips, language
     )
 
@@ -234,9 +364,11 @@ def select_clips_with_ai(
 
     if check_cancelled:
         check_cancelled()
-    # Llama 3.2 Instruct expects chat format for best results
     response = llm.create_chat_completion(
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ],
         max_tokens=256,
         temperature=0.3,
         stop=["```", "\n\n\n"],
@@ -250,7 +382,7 @@ def select_clips_with_ai(
             on_log("AI returned no valid selection. Falling back to algorithm.", "warning")
         return candidates[:max_clips]
 
-    # Map indices back to ClipRegions, preserving order
+    # Map indices back to ClipRegions (indices refer to reordered candidates)
     seen = set()
     regions: list[ClipRegion] = []
     for idx in indices:
