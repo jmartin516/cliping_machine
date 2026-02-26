@@ -117,23 +117,23 @@ def main() -> None:
         if getattr(sys, "frozen", False):
             _msg = """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  CustosAI Clipper — Incompatible con tu sistema                              ║
+║  CustosAI Clipper — Incompatible with your system                            ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  Esta versión de la app no es compatible con tu Mac.                         ║
+║  This version is not compatible with your Mac.                               ║
 ║                                                                              ║
-║  Por favor descarga la versión más reciente desde Whop o contacta soporte.   ║
+║  Please download the latest version from Whop or contact support.             ║
 ║                                                                              ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 """
         else:
             _msg = """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  CustosAI Clipper — Tk version incompatible                                  ║
+║  CustosAI Clipper — Tk version incompatible                                 ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  Tu Python usa Tk 8.5. CustomTkinter requiere Tk 8.6+ para funcionar.       ║
-║  En macOS, el Python del sistema trae Tk 8.5.                               ║
+║  Your Python uses Tk 8.5. CustomTkinter requires Tk 8.6+ to work.            ║
+║  On macOS, system Python ships with Tk 8.5.                                 ║
 ║                                                                              ║
-║  SOLUCIÓN: Instala Python 3.11+ desde Homebrew:                              ║
+║  SOLUTION: Install Python 3.11+ from Homebrew:                              ║
 ║                                                                              ║
 ║    brew install python@3.11 python-tk@3.11                                   ║
 ║    cd local_clipper                                                          ║

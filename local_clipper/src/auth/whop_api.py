@@ -207,10 +207,14 @@ def _parse_response(
             else None
         )
 
-        if bound_hwid and bound_hwid != hwid:
+        # Whop can be inconsistent with metadata. If no bound_hwid, it's first activation — OK.
+        if not bound_hwid:
+            return ValidationSuccess(license_key=license_key, hwid=hwid)
+
+        if bound_hwid != hwid:
             return ValidationFailure(
                 error_code=_ERR_HWID_MISMATCH,
-                message="This license is already activated on another machine.",
+                message="This license is already activated on another device.",
                 recoverable=False,
             )
 
