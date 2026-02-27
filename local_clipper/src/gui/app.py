@@ -36,7 +36,7 @@ from src.gui.components import (
     StatusProgressBar,
     YouTubeInput,
 )
-from src.utils.paths import get_assets_path, get_bundled_ffmpeg_dir
+from src.utils.paths import get_assets_path, get_bundled_ffmpeg_dir, get_icon_source
 
 logger = logging.getLogger(__name__)
 
@@ -57,11 +57,13 @@ def _apply_icon(window: ctk.CTk) -> None:
             if ico.exists():
                 window.iconbitmap(str(ico))
         else:
-            png = _ASSETS / "icon.png"
-            if png.exists():
-                from tkinter import PhotoImage
-                icon = PhotoImage(file=str(png))
-                window.iconphoto(True, icon)
+            icon_path = get_icon_source()
+            if icon_path:
+                from PIL import Image
+                from PIL import ImageTk
+                img = Image.open(icon_path).convert("RGBA")
+                photo = ImageTk.PhotoImage(img)
+                window.iconphoto(True, photo)
     except Exception:
         logger.debug("Window icon not applied — non-critical, skipping")
 
@@ -104,8 +106,8 @@ class LoginView(ctk.CTkFrame):
 
         # Logo from assets
         row = 0
-        logo_path = _ASSETS / "icon.png"
-        if logo_path.exists():
+        logo_path = get_icon_source()
+        if logo_path:
             try:
                 from PIL import Image
                 pil_img = Image.open(logo_path).convert("RGBA").resize((64, 64))

@@ -26,6 +26,14 @@ if [ ! -f "$REAL_BIN" ]; then
     exit 1
 fi
 
+# Ensure app icon is in Contents/Resources (runs every build for rounded macOS icon)
+RESOURCES="$PROJECT_ROOT/dist/LocalClipper.app/Contents/Resources"
+ICON_SRC="$PROJECT_ROOT/assets/icon.icns"
+if [ -f "$ICON_SRC" ] && [ -d "$RESOURCES" ]; then
+    cp "$ICON_SRC" "$RESOURCES/icon.icns"
+    echo "App icon set for macOS (rounded icon in Finder/Dock)."
+fi
+
 # Check if fix was already applied
 if [ -f "$MACOS_DIR/LocalClipper.real" ] && [ -f "$MACOS_DIR/pty_launcher" ]; then
     echo "macOS Tk fix already applied."

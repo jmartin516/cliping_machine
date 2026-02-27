@@ -44,6 +44,16 @@ def get_assets_path() -> Path:
     return get_base_path() / "assets"
 
 
+def get_icon_source() -> Path | None:
+    """Return icon.png, icon.jpg, or icon.jpeg (first found)."""
+    assets = get_assets_path()
+    for name in ("icon.png", "icon.jpg", "icon.jpeg"):
+        p = assets / name
+        if p.exists():
+            return p
+    return None
+
+
 def get_env_path() -> Path:
     """Return the path to the .env file."""
     return get_base_path() / ".env"

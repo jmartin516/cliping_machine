@@ -4,11 +4,17 @@ Clip selection engine for CustosAI Clipper.
 Scores windows of the transcript by speech density, speech coverage, and
 visual dynamism (scene change density). Pure Python — no LLM or external
 service required.
+
+TikTok Optimizations:
+- Dynamic duration based on content type detection
+- Emotion/sentiment analysis in scoring
+- Hook detection for retention optimization
 """
 
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -20,6 +26,61 @@ _WORD_DENSITY_WEIGHT = 0.40
 _COVERAGE_WEIGHT = 0.30
 _SCENE_DENSITY_WEIGHT = 0.30
 _WINDOW_STEP_S = 2.0
+
+# Content type patterns for TikTok optimization
+_CONTENT_TYPE_PATTERNS = {
+    "quick_tip": {
+        "patterns": [
+            r"\btrick\b", r"\btip\b", r"\bhack\b", r"\bhow to\b", 
+            r"\btruco\b", r"\bconsejo\b", r"\bcomo\s+hacer\b",
+            r"\bdica\b", r"\btruque\b", r"\btutorial\b",
+        ],
+        "optimal_duration": (15, 25),  # Quick tips work best short
+    },
+    "storytime": {
+        "patterns": [
+            r"\bstorytime\b", r"\bcuento\b", r"\bhistoria\b", r"\bme pas[oó]\b",
+            r"\bstory\s*time\b", r"\bel otro d[ií]a\b", r"\buna vez\b",
+        ],
+        "optimal_duration": (45, 60),  # Stories need more time
+    },
+    "reaction": {
+        "patterns": [
+            r"\breaction\b", r"\breacci[oó]n\b", r"\breacting\b", r"\breact\b",
+            r"\bmira esto\b", r"\bves esto\b",
+        ],
+        "optimal_duration": (30, 45),
+    },
+    "pov": {
+        "patterns": [
+            r"\bpov\s*:?\b", r"\bpoint of view\b", r"\bcuando\s+eres\b",
+            r"\bese momento\b",
+        ],
+        "optimal_duration": (15, 30),
+    },
+    "transformation": {
+        "patterns": [
+            r"\btransformation\b", r"\bantes\s+y\s+despu[eé]s\b", r"\bantes y despues\b",
+            r"\bresultado\b", r"\bantes de\b",
+        ],
+        "optimal_duration": (20, 35),
+    },
+    "ranking": {
+        "patterns": [
+            r"\branking\b", r"\btop\s+\d+\b", r"\bmejores\b", r"\bpeores\b",
+            r"\brating\b", r"\bpuntuando\b", r"\bvalorando\b",
+        ],
+        "optimal_duration": (30, 50),
+    },
+}
+
+# Emotion indicators for engagement scoring
+_EMOTION_INDICATORS = {
+    "laughter": ["jaja", "lol", "lmao", "haha", "risa", "gracioso", "funny"],
+    "surprise": ["wow", "oh my", "omg", "no way", "incre[ií]ble", "omg", "que\s+"],
+    "excitement": ["yes!", "let's go", "vamos", "vamo", "yeah", "woohoo", "woohoo"],
+    "controversy": ["wrong", "lie", "truth", "mentira", "verdad", "mal", "bien"],
+}
 
 
 @dataclass
@@ -34,6 +95,89 @@ class ClipRegion:
         return self.end - self.start
 
 
+def _detect_content_type(segments: list[Segment]) -> tuple[str, tuple[int, int]]:
+    """
+    Detect content type from transcript patterns.
+    Returns (content_type, (min_duration, max_duration)).
+    """
+    full_text = " ".join([s.get("text", "").lower() for s in segments])
+    
+    for content_type, config in _CONTENT_TYPE_PATTERNS.items():
+        for pattern in config["patterns"]:
+            if re.search(pattern, full_text):
+                return content_type, config["optimal_duration"]
+    
+    # Default: general content
+    return "general", (25, 45)
+
+
+def _calculate_emotion_score(segments: list[Segment], start: float, end: float) -> float:
+    """Calculate emotion engagement score for a time window."""
+    text = " ".join([
+        s.get("text", "").lower() 
+        for s in segments 
+        if start <= s.get("start", 0) < end
+    ])
+    
+    score = 0.0
+    for emotion_type, indicators in _EMOTION_INDICATORS.items():
+        for indicator in indicators:
+            if re.search(indicator, text):
+                if emotion_type == "laughter":
+                    score += 2.0  # Laughter is highly engaging
+                elif emotion_type == "surprise":
+                    score += 1.5
+                elif emotion_type == "excitement":
+                    score += 1.0
+                elif emotion_type == "controversy":
+                    score += 1.2
+    
+    return score
+
+
+def _calculate_tiktok_score(
+    region: ClipRegion,
+    segments: list[Segment],
+    optimal_duration: tuple[int, int],
+) -> float:
+    """
+    Calculate TikTok-specific score boost for a region.
+    Considers: duration match, emotion, engagement patterns.
+    """
+    duration = region.end - region.start
+    min_opt, max_opt = optimal_duration
+    
+    score = 0.0
+    
+    # Duration match bonus
+    if min_opt <= duration <= max_opt:
+        score += 2.0  # Perfect duration
+    elif duration < min_opt:
+        score -= (min_opt - duration) * 0.1  # Slight penalty for too short
+    elif duration > max_opt:
+        score -= (duration - max_opt) * 0.15  # Penalty for too long
+    
+    # Emotion score
+    emotion_score = _calculate_emotion_score(segments, region.start, region.end)
+    score += emotion_score
+    
+    # Hook at start bonus (check first 5 seconds)
+    first_5s_text = " ".join([
+        s.get("text", "").lower()
+        for s in segments
+        if region.start <= s.get("start", 0) < region.start + 5
+    ])
+    
+    hook_keywords = [
+        "imagine", "what if", "did you know", "secret", "surprising",
+        "increible", "sorprendente", "secreto", "sabias que", "imagina",
+    ]
+    if any(kw in first_5s_text for kw in hook_keywords):
+        score += 3.0  # Strong hook at start
+    
+    return score
+
+
 def select_clips(
     segments: list[Segment],
     video_duration: float,
@@ -41,6 +185,7 @@ def select_clips(
     max_clips: int = 5,
     merge_gap: float = 5.0,
     scene_changes: Optional[list[float]] = None,
+    optimize_for_tiktok: bool = True,
 ) -> list[ClipRegion]:
     """
     Select the best clip regions from a transcript + scene data.
@@ -57,12 +202,23 @@ def select_clips(
         merge_gap:      Merge windows closer than this (seconds).
         scene_changes:  Sorted list of scene-change timestamps (seconds).
                         Pass ``None`` to use speech-only scoring.
+        optimize_for_tiktok: If True, applies TikTok-specific optimizations.
 
     Returns:
         List of ``ClipRegion`` sorted by start time.
     """
     if not segments or video_duration <= 0:
         return []
+    
+    # Detect content type for dynamic duration optimization
+    content_type, optimal_duration = _detect_content_type(segments)
+    logger.info(f"Detected content type: {content_type}, optimal duration: {optimal_duration}")
+    
+    # Adjust clip_length based on content type if TikTok optimization enabled
+    if optimize_for_tiktok:
+        target_duration = (optimal_duration[0] + optimal_duration[1]) // 2
+        clip_length = max(10, min(target_duration, int(video_duration)))
+        logger.info(f"TikTok optimization: adjusted clip length to {clip_length}s")
 
     clip_length = max(10, min(clip_length, int(video_duration)))
 
@@ -71,6 +227,12 @@ def select_clips(
     )
     if not windows:
         return []
+    
+    # Apply TikTok-specific scoring
+    if optimize_for_tiktok:
+        for window in windows:
+            tiktok_boost = _calculate_tiktok_score(window, segments, optimal_duration)
+            window.score += tiktok_boost * 0.1  # Weight TikTok factors at 10%
 
     selected = _non_max_suppression(windows, max_clips)
     merged = _merge_nearby(selected, merge_gap, video_duration)
@@ -82,7 +244,8 @@ def select_clips(
     merged.sort(key=lambda r: r.start)
 
     logger.info(
-        "Selected %d clip(s) from %d scored windows", len(merged), len(windows)
+        "Selected %d clip(s) from %d scored windows (content: %s)", 
+        len(merged), len(windows), content_type
     )
     return merged
 

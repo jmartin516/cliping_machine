@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate icon.icns (macOS) and icon.ico (Windows) from assets/icon.png.
+Generate icon.icns (macOS) and icon.ico (Windows) from assets/icon.png or icon.jpg.
 Run before PyInstaller so the app bundle has the correct icon.
 """
 
@@ -18,15 +18,28 @@ logger = logging.getLogger(__name__)
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 ASSETS = PROJECT_ROOT / "assets"
-ICON_PNG = ASSETS / "icon.png"
+
+
+def _get_icon_source() -> Path | None:
+    """Return icon.png, icon.jpg, or icon.jpeg (first found)."""
+    for name in ("icon.png", "icon.jpg", "icon.jpeg"):
+        p = ASSETS / name
+        if p.exists():
+            return p
+    return None
+
+
+ICON_SOURCE = _get_icon_source()
 
 
 def generate_ico() -> bool:
-    """Generate icon.ico from icon.png using Pillow."""
+    """Generate icon.ico from icon source (png/jpg) using Pillow."""
+    if not ICON_SOURCE:
+        return False
     try:
         from PIL import Image
 
-        img = Image.open(ICON_PNG).convert("RGBA")
+        img = Image.open(ICON_SOURCE).convert("RGBA")
         out_path = ASSETS / "icon.ico"
         sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
         img.save(out_path, format="ICO", sizes=sizes)
@@ -38,17 +51,18 @@ def generate_ico() -> bool:
 
 
 def generate_icns() -> bool:
-    """Generate icon.icns from icon.png using Pillow + macOS iconutil."""
+    """Generate icon.icns from icon source (png/jpg) using Pillow + macOS iconutil."""
     if platform.system() != "Darwin":
         logger.info("Skipping icon.icns (macOS only)")
         return False
-
+    if not ICON_SOURCE:
+        return False
     try:
         from PIL import Image
 
-        img = Image.open(ICON_PNG).convert("RGBA")
+        img = Image.open(ICON_SOURCE).convert("RGBA")
     except Exception as exc:
-        logger.warning("Could not load icon.png for icns: %s", exc)
+        logger.warning("Could not load icon for icns: %s", exc)
         return False
 
     iconset = ASSETS / "icon.iconset"
@@ -101,8 +115,8 @@ def generate_icns() -> bool:
 
 
 def main() -> None:
-    if not ICON_PNG.exists():
-        logger.warning("No icon.png in assets — skipping icon generation")
+    if not ICON_SOURCE:
+        logger.warning("No icon.png or icon.jpg in assets — skipping icon generation")
         return
 
     generate_ico()

@@ -179,6 +179,7 @@ if sys.platform == "darwin":
             "NSPrincipalClass": "NSApplication",
             "NSHighResolutionCapable": True,
             "LSMultipleInstancesProhibited": True,
+            "CFBundleIconFile": "icon",
             "CFBundleVersion": APP_VERSION,
             "CFBundleShortVersionString": APP_VERSION,
         },

@@ -566,6 +566,7 @@ def analyze_video(
         clip_length=clip_length,
         max_clips=max(15, max_clips * 3),
         scene_changes=scene_changes,
+        optimize_for_tiktok=True,
     )
     if on_progress:
         on_progress(0.86, "AI selecting best clips…")
