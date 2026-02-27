@@ -55,6 +55,7 @@ jobs:
       - name: Upgrade pip and install build tools
         run: |
           python -m pip install --upgrade pip setuptools wheel
+          pip install setuptools --force-reinstall  # Asegurar que pkg_resources esté disponible
 
       - name: Install dependencies
         run: |
@@ -87,13 +88,17 @@ jobs:
           
           Write-Host "=== Listing ctranslate2 binaries ==="
           try {
-            $ctransPath = python -c "import ctranslate2; print(ctranslate2.__path__[0])"
-            Write-Host "ctranslate2 path: $ctransPath"
-            Get-ChildItem -Path $ctransPath -Recurse -Include "*.dll","*.pyd" -ErrorAction SilentlyContinue | ForEach-Object {
-              Write-Host "  Found: $($_.FullName)"
+            $ctransPath = python -c "import pkg_resources; import ctranslate2; print(ctranslate2.__path__[0])" 2>$null
+            if ($ctransPath) {
+              Write-Host "ctranslate2 path: $ctransPath"
+              Get-ChildItem -Path $ctransPath -Recurse -Include "*.dll","*.pyd" -ErrorAction SilentlyContinue | ForEach-Object {
+                Write-Host "  Found: $($_.FullName)"
+              }
+            } else {
+              Write-Host "  ctranslate2 path not found, but will be collected by PyInstaller"
             }
           } catch {
-            Write-Host "  Could not list ctranslate2 binaries"
+            Write-Host "  Could not list ctranslate2 binaries (non-critical): $_"
           }
 
       - name: Pre-download FFmpeg for bundling

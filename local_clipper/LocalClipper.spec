@@ -198,6 +198,8 @@ hiddenimports = [
     "urllib3",
     "packaging",
     "packaging.version",
+    "pkg_resources",
+    "pkg_resources.py31compat" if sys.platform == "win32" else "pkg_resources.py2_warn",
 ]
 
 # Recolectar submódulos adicionales

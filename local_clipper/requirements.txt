@@ -33,6 +33,9 @@ requests==2.32.3
 urllib3>=1.26.0,<2.0.0
 python-dotenv==1.0.1
 
+# ── Packaging & Distribution ─────────────────────────────────────────
+setuptools>=68.0.0  # Necesario para pkg_resources (ctranslate2)
+
 # ── Packaging (install separately in build env) ─────────────────────
 # pyinstaller==6.9.0
 # pyarmor==8.5.11
