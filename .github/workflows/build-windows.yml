@@ -155,7 +155,8 @@ jobs:
           Compress-Archive -Path dist\* -DestinationPath $zipPath -Force
           Write-Host "Created: $zipPath"
           $size = (Get-Item $zipPath).Length
-          Write-Host "Zip size: {0:N2} MB" -f ($size / 1MB)
+          $sizeMB = [math]::Round($size / 1MB, 2)
+          Write-Host "Zip size: $sizeMB MB"
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
