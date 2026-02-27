@@ -52,10 +52,11 @@ jobs:
           $lines -join "`n" | Out-File -FilePath .env -Encoding utf8
           if ($key -eq "placeholder") { Write-Host "::warning::WHOP_API_KEY secret not set. Add it in Settings → Secrets → Actions for license validation." }
 
-      - name: Upgrade pip and install build tools
+      - name: Upgrade pip and install build tools FIRST
         run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install setuptools --force-reinstall  # Asegurar que pkg_resources esté disponible
+          python -m pip install --upgrade pip
+          pip install --force-reinstall setuptools==69.5.1  # Versión específica con pkg_resources
+          pip install wheel
 
       - name: Install dependencies
         run: |
@@ -64,6 +65,7 @@ jobs:
       - name: Verify critical imports work
         run: |
           Write-Host "Testing critical imports..."
+          python -c "import pkg_resources; print('  pkg_resources OK')"
           python -c "import numpy; print('  numpy OK:', numpy.__version__)"
           python -c "import cv2; print('  cv2 OK:', cv2.__version__)"
           python -c "import PIL; print('  PIL OK:', PIL.__version__)"
@@ -75,7 +77,8 @@ jobs:
           python -c "import customtkinter; print('  customtkinter OK:', customtkinter.__version__)"
           Write-Host "All critical imports successful!"
 
-      - name: Debug - List llama_cpp binaries
+      - name: Debug - List binaries
+        shell: pwsh
         run: |
           Write-Host "=== Listing llama_cpp package contents ==="
           $llamaPath = python -c "import llama_cpp; print(llama_cpp.__path__[0])"
@@ -88,18 +91,20 @@ jobs:
           
           Write-Host "=== Listing ctranslate2 binaries ==="
           try {
-            $ctransPath = python -c "import pkg_resources; import ctranslate2; print(ctranslate2.__path__[0])" 2>$null
+            # Usar solo ctranslate2, sin pkg_resources en el mismo comando
+            $ctransPath = python -c "import ctranslate2; print(ctranslate2.__path__[0])"
             if ($ctransPath) {
               Write-Host "ctranslate2 path: $ctransPath"
               Get-ChildItem -Path $ctransPath -Recurse -Include "*.dll","*.pyd" -ErrorAction SilentlyContinue | ForEach-Object {
                 Write-Host "  Found: $($_.FullName)"
               }
-            } else {
-              Write-Host "  ctranslate2 path not found, but will be collected by PyInstaller"
             }
           } catch {
             Write-Host "  Could not list ctranslate2 binaries (non-critical): $_"
           }
+          
+          # Siempre retornar éxito
+          exit 0
 
       - name: Pre-download FFmpeg for bundling
         run: python scripts/setup_ffmpeg_bundle.py
