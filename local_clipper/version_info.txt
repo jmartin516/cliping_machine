@@ -1,0 +1,7 @@
+CUSTOSAI CLIPPER v1.1.0
+Build Date: $(date)
+Features:
+- Single-instance protection
+- GDPR-compliant consent
+- Auto-updater
+- License management

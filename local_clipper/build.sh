@@ -86,6 +86,11 @@ python scripts/setup_icons.py || true
 echo "Building with PyInstaller..."
 python -m PyInstaller -y LocalClipper.spec
 
+# macOS: fix Tk crash when launched from Finder (pty launcher, single Dock icon)
+if [ "$(uname)" = "Darwin" ] && [ -d "dist/LocalClipper.app" ]; then
+    bash scripts/apply_macos_tk_fix.sh || true
+fi
+
 # Firma en macOS (ad-hoc por defecto; ver scripts/sign_and_notarize.sh para Developer ID)
 if [ "$(uname)" = "Darwin" ] && [ -d "dist/LocalClipper.app" ]; then
     echo "Firmando app para macOS..."
