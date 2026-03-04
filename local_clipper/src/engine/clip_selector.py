@@ -35,42 +35,42 @@ _CONTENT_TYPE_PATTERNS = {
             r"\btruco\b", r"\bconsejo\b", r"\bcomo\s+hacer\b",
             r"\bdica\b", r"\btruque\b", r"\btutorial\b",
         ],
-        "optimal_duration": (15, 25),  # Quick tips work best short
+        "optimal_duration": (45, 75),  # Targeted around 60s
     },
     "storytime": {
         "patterns": [
             r"\bstorytime\b", r"\bcuento\b", r"\bhistoria\b", r"\bme pas[oó]\b",
             r"\bstory\s*time\b", r"\bel otro d[ií]a\b", r"\buna vez\b",
         ],
-        "optimal_duration": (45, 60),  # Stories need more time
+        "optimal_duration": (55, 90),  # Can go slightly longer for stories
     },
     "reaction": {
         "patterns": [
             r"\breaction\b", r"\breacci[oó]n\b", r"\breacting\b", r"\breact\b",
             r"\bmira esto\b", r"\bves esto\b",
         ],
-        "optimal_duration": (30, 45),
+        "optimal_duration": (50, 75),
     },
     "pov": {
         "patterns": [
             r"\bpov\s*:?\b", r"\bpoint of view\b", r"\bcuando\s+eres\b",
             r"\bese momento\b",
         ],
-        "optimal_duration": (15, 30),
+        "optimal_duration": (40, 70),
     },
     "transformation": {
         "patterns": [
             r"\btransformation\b", r"\bantes\s+y\s+despu[eé]s\b", r"\bantes y despues\b",
             r"\bresultado\b", r"\bantes de\b",
         ],
-        "optimal_duration": (20, 35),
+        "optimal_duration": (45, 75),
     },
     "ranking": {
         "patterns": [
             r"\branking\b", r"\btop\s+\d+\b", r"\bmejores\b", r"\bpeores\b",
             r"\brating\b", r"\bpuntuando\b", r"\bvalorando\b",
         ],
-        "optimal_duration": (30, 50),
+        "optimal_duration": (50, 80),
     },
 }
 
@@ -107,8 +107,8 @@ def _detect_content_type(segments: list[Segment]) -> tuple[str, tuple[int, int]]
             if re.search(pattern, full_text):
                 return content_type, config["optimal_duration"]
     
-    # Default: general content
-    return "general", (25, 45)
+    # Default: general content target around 60 seconds
+    return "general", (50, 75)
 
 
 def _calculate_emotion_score(segments: list[Segment], start: float, end: float) -> float:
@@ -149,13 +149,15 @@ def _calculate_tiktok_score(
     
     score = 0.0
     
-    # Duration match bonus
+    # Duration match bonus (target ~60s flexibly)
     if min_opt <= duration <= max_opt:
-        score += 2.0  # Perfect duration
+        score += 3.0  # Perfect duration
     elif duration < min_opt:
-        score -= (min_opt - duration) * 0.1  # Slight penalty for too short
+        # Heavily penalize very short clips
+        score -= (min_opt - duration) * 0.2
     elif duration > max_opt:
-        score -= (duration - max_opt) * 0.15  # Penalty for too long
+        # Only lightly penalize long clips, allowing longer high-quality clips
+        score -= (duration - max_opt) * 0.05
     
     # Emotion score
     emotion_score = _calculate_emotion_score(segments, region.start, region.end)

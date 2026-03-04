@@ -517,15 +517,7 @@ class DashboardView(ctk.CTkFrame):
         )
         self._model_menu.grid(row=0, column=0, sticky="ew", padx=(0, 12))
 
-        self._clip_length_slider = LabeledSlider(
-            row1,
-            label="Clip Length",
-            from_=30,
-            to=60,
-            default=45,
-            suffix="s",
-        )
-        self._clip_length_slider.grid(row=0, column=1, sticky="ew")
+
 
         # ── Options row 2: num clips + toggles + generate ─────────────────
         row2 = ctk.CTkFrame(controls, fg_color="transparent")
@@ -656,7 +648,7 @@ class DashboardView(ctk.CTkFrame):
         return self._model_menu.get()
 
     def get_clip_length(self) -> int:
-        return self._clip_length_slider.get()
+        return 60
 
     def get_num_clips(self) -> int:
         return self._num_clips_slider.get()

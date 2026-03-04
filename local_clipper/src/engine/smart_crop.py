@@ -30,7 +30,8 @@ LogCallback = Callable[[str, str], None]
 
 _SAMPLE_INTERVAL = 0.5           # seconds between analysed frames (fewer = less jumpy)
 _DOWNSCALE_WIDTH = 320           # resize width for face detection (speed)
-_EMA_ALPHA = 0.10                # smoothing factor (lower = smoother pan, less dizzy)
+_EMA_ALPHA_FACE = 0.03             # very slow, smooth pan when face detected
+_EMA_ALPHA_NO_FACE = 0.01          # extremely slow return to center when no face
 _FACE_SCALE_FACTOR = 1.15
 _FACE_MIN_NEIGHBOURS = 5
 _FACE_MIN_SIZE_RATIO = 0.06     # min face size as fraction of frame width
@@ -126,19 +127,18 @@ def compute_crop_trajectory(
             if x_center is not None:
                 face_hits += 1
             else:
-                x_center = _detect_motion(small, prev_gray, scale, src_w)
-                if x_center is not None:
-                    motion_hits += 1
+                # Disabled motion tracking as it causes wild jumping on web browser scenes
+                x_center = None
 
             prev_gray = small
 
             if x_center is not None:
                 x_off = int(x_center - canvas_w / 2)
                 x_off = max(0, min(x_off, src_w - canvas_w))
+                raw_points.append((rel_t, x_off, True)) # True = face/motion detected
             else:
                 x_off = default_x
-
-            raw_points.append((rel_t, x_off))
+                raw_points.append((rel_t, x_off, False)) # False = fallback to center
 
             if clip_frames > 0 and on_log:
                 pct = int(frame_idx / clip_frames * 100)
@@ -159,7 +159,7 @@ def compute_crop_trajectory(
     _log(
         on_log,
         f"Smart crop: {len(smoothed)} samples, "
-        f"{face_hits} face detections, {motion_hits} motion fallbacks",
+        f"{face_hits} face detections (motion fallback disabled)",
         "info",
     )
     return smoothed
@@ -185,10 +185,20 @@ def _detect_faces(
     if len(faces) == 0:
         return None
 
-    # Use largest face only — avoids jumpy pan when 2+ faces
-    largest = max(faces, key=lambda f: f[2] * f[3])
-    x, y, w, h = largest
-    return int((x + w / 2) / scale)
+    # If there are multiple faces, track the center point between all of them
+    # Instead of just snapping to the single largest one
+    total_x = 0
+    total_y = 0
+    total_weight = 0
+
+    for x, y, w, h in faces:
+        area = w * h
+        total_x += (x + w / 2) * area
+        total_y += (y + h / 2) * area
+        total_weight += area
+        
+    avg_x = total_x / total_weight
+    return int(avg_x / scale)
 
 
 # ── Motion fallback ──────────────────────────────────────────────────────────
@@ -224,7 +234,7 @@ def _detect_motion(
 
 
 def _smooth_trajectory(
-    raw: list[tuple[float, int]],
+    raw: list[tuple[float, int, bool]],
     src_w: int,
     canvas_w: int,
 ) -> list[tuple[float, int]]:
@@ -236,8 +246,10 @@ def _smooth_trajectory(
     prev = raw[0][1]
     max_off = src_w - canvas_w
 
-    for t, x in raw:
-        s = _EMA_ALPHA * x + (1 - _EMA_ALPHA) * prev
+    for t, x, detected in raw:
+        # Use a slower smoothing factor when tracking defaults to center so it doesn't snap abruptly
+        alpha = _EMA_ALPHA_FACE if detected else _EMA_ALPHA_NO_FACE
+        s = alpha * x + (1 - alpha) * prev
         clamped = max(0, min(int(s), max_off))
         smoothed.append((t, clamped))
         prev = s
