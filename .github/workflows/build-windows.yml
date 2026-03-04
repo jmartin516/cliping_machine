@@ -135,7 +135,7 @@ jobs:
 
       - name: Test executable launches
         run: |
-          $exePath = "dist\LocalClipper.exe"
+          $exePath = "dist\LocalClipper\LocalClipper.exe"
           if (-not (Test-Path $exePath)) {
             Write-Error "Executable not found at $exePath"
             exit 1
@@ -152,7 +152,7 @@ jobs:
       - name: Create CustosAI-Clipper-Windows.zip
         run: |
           $zipPath = "..\CustosAI-Clipper-Windows.zip"
-          Compress-Archive -Path dist\* -DestinationPath $zipPath -Force
+          Compress-Archive -Path dist\LocalClipper -DestinationPath $zipPath -Force
           Write-Host "Created: $zipPath"
           $size = (Get-Item $zipPath).Length
           $sizeMB = [math]::Round($size / 1MB, 2)

@@ -7,14 +7,14 @@ cd /d "%~dp0"
 
 echo === Empaquetando para Whop ===
 
-if not exist "dist\LocalClipper.exe" (
-    echo ERROR: No existe dist\LocalClipper.exe. Ejecuta primero: build.bat
+if not exist "dist\LocalClipper\LocalClipper.exe" (
+    echo ERROR: No existe dist\LocalClipper\LocalClipper.exe. Ejecuta primero: build.bat
     pause
     exit /b 1
 )
 
 echo Creando CustosAI-Clipper-Windows.zip...
-powershell -Command "Compress-Archive -Path dist\LocalClipper.exe -DestinationPath CustosAI-Clipper-Windows.zip -Force"
+powershell -Command "Compress-Archive -Path dist\LocalClipper -DestinationPath CustosAI-Clipper-Windows.zip -Force"
 
 echo.
 echo === Listo ===
