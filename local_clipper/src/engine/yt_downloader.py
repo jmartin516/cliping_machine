@@ -96,7 +96,13 @@ def _download_with_binary(
 
     try:
         if check_cancelled:
-            proc = subprocess.Popen(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            proc = subprocess.Popen(
+                cmd, 
+                env=env, 
+                stdout=subprocess.DEVNULL, 
+                stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
             while proc.poll() is None:
                 if check_cancelled:
                     try:
@@ -109,7 +115,14 @@ def _download_with_binary(
             if proc.returncode != 0:
                 raise subprocess.CalledProcessError(proc.returncode, cmd)
         else:
-            subprocess.run(cmd, env=env, check=True, capture_output=True, timeout=3600)
+            subprocess.run(
+                cmd, 
+                env=env, 
+                check=True, 
+                capture_output=True, 
+                timeout=3600,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
         _log(on_log, f"yt-dlp binary failed: {exc}", "warning")
         return None

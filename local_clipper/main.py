@@ -16,11 +16,12 @@ import tempfile
 import warnings
 from pathlib import Path
 
+import multiprocessing
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # FIX CRÍTICO #1: Configurar multiprocessing ANTES de cualquier otra importación
 # ═══════════════════════════════════════════════════════════════════════════════
 if sys.platform == "darwin":
-    import multiprocessing
     try:
         multiprocessing.set_start_method('spawn', force=True)
     except RuntimeError:
