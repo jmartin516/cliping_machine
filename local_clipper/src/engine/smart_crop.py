@@ -28,14 +28,13 @@ logger = logging.getLogger(__name__)
 
 LogCallback = Callable[[str, str], None]
 
-_SAMPLE_INTERVAL = 0.5           # seconds between analysed frames (fewer = less jumpy)
+_SAMPLE_INTERVAL = 0.5           # ~2 samples/sec for smoother, less jerky tracking
 _DOWNSCALE_WIDTH = 320           # resize width for face detection (speed)
-_EMA_ALPHA_FACE = 0.03             # very slow, smooth pan when face detected
-_EMA_ALPHA_NO_FACE = 0.01          # extremely slow return to center when no face
-_FACE_SCALE_FACTOR = 1.15
-_FACE_MIN_NEIGHBOURS = 5
-_FACE_MIN_SIZE_RATIO = 0.06     # min face size as fraction of frame width
-_ZOOM_OUT_FACTOR = 1.15          # capture 15 % wider than 9:16, then resize
+_EMA_ALPHA_FACE = 0.03           # less responsive, smoother panning to reduce dizziness
+_EMA_ALPHA_NO_FACE = 0.008       # even slower drift back to center when no face
+_FACE_SCALE_FACTOR = 1.12
+_FACE_MIN_NEIGHBOURS = 4
+_FACE_MIN_SIZE_RATIO = 0.05     # min face size as fraction of frame width
 
 
 def _get_cascade_path() -> str:
@@ -133,7 +132,8 @@ def compute_crop_trajectory(
             prev_gray = small
 
             if x_center is not None:
-                x_off = int(x_center - canvas_w / 2)
+                # Position face at 35% of canvas width (not center) to show action context
+                x_off = int(x_center - canvas_w * 0.35)
                 x_off = max(0, min(x_off, src_w - canvas_w))
                 raw_points.append((rel_t, x_off, True)) # True = face/motion detected
             else:
@@ -268,29 +268,33 @@ def apply_smart_crop(
 ) -> VideoClip:
     """Return a new clip dynamically cropped per-frame using *trajectory*.
 
-    Captures a region wider than *canvas_w* (controlled by
-    ``_ZOOM_OUT_FACTOR``) and resizes it down, giving a slight zoom-out
-    so faces don't fill the entire frame.
+    Performs a 1:1 pixel crop (no zoom/resize) so the full scene detail is
+    preserved. The horizontal position follows the face-tracking trajectory
+    and the vertical crop is centred.
 
-    If *canvas_h* is given (split-screen mode), the vertical crop is also
-    centre-based with that height. Otherwise the full source height is kept.
+    If *canvas_h* is given (split-screen mode), the vertical crop uses that
+    height. Otherwise the full source height is kept.
     """
     src_w, src_h = source.size
     out_h = canvas_h if canvas_h is not None else src_h
 
-    capture_w = min(int(canvas_w * _ZOOM_OUT_FACTOR), src_w)
-    capture_h = min(int(out_h * _ZOOM_OUT_FACTOR), src_h)
-    y1 = max(0, (src_h - capture_h) // 2)
+    crop_w = min(canvas_w, src_w)
+    crop_h = min(out_h, src_h)
+    y1 = max(0, (src_h - crop_h) // 2)
 
     times = np.array([t for t, _ in trajectory], dtype=np.float64)
     offsets = np.array([x for _, x in trajectory], dtype=np.float64)
 
+    needs_resize = (crop_w != canvas_w) or (crop_h != out_h)
+
     def _make_frame(t: float) -> np.ndarray:
         frame = source.get_frame(t)
         x = int(np.interp(t, times, offsets))
-        x = max(0, min(x, src_w - capture_w))
-        cropped = frame[y1 : y1 + capture_h, x : x + capture_w]
-        return cv2.resize(cropped, (canvas_w, out_h), interpolation=cv2.INTER_AREA)
+        x = max(0, min(x, src_w - crop_w))
+        cropped = frame[y1 : y1 + crop_h, x : x + crop_w]
+        if needs_resize:
+            return cv2.resize(cropped, (canvas_w, out_h), interpolation=cv2.INTER_AREA)
+        return cropped
 
     result = VideoClip(_make_frame, duration=source.duration)
     result.fps = source.fps

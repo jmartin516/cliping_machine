@@ -50,6 +50,15 @@ else:
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+# Load .env early so ADMIN_LICENSE_KEY etc. are available before any auth imports
+_env_file = _ROOT / ".env"
+if _env_file.exists():
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(_env_file)
+    except ImportError:
+        pass
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # FIX CRÍTICO #2: Single Instance Lock Robusto

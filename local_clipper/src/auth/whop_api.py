@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Union
 from urllib.parse import quote
 
@@ -30,7 +32,14 @@ from src.utils.paths import get_env_path
 logger = logging.getLogger(__name__)
 
 # Load .env from project root (or PyInstaller bundle root)
-load_dotenv(get_env_path())
+_env_path = get_env_path()
+load_dotenv(_env_path)
+# Fallback: also try loading from cwd (bundled app may extract to temp)
+if not _env_path.exists() and getattr(sys, "frozen", False):
+    for _p in [Path.cwd() / ".env", Path(sys.executable).parent / ".env"]:
+        if _p.exists():
+            load_dotenv(_p)
+            break
 
 # Support WHOP_API_BASE (preferred) or legacy WHOP_API_URL
 _api_base = os.getenv("WHOP_API_BASE", "").rstrip("/")
@@ -110,9 +119,10 @@ def validate_license(license_key: str) -> ValidationResult:
             message="License key cannot be empty.",
         )
 
-    # Admin bypass: si ADMIN_LICENSE_KEY está definida y coincide, validar sin Whop
-    admin_key = os.getenv("ADMIN_LICENSE_KEY", "").strip()
-    if admin_key and license_key == admin_key:
+    # Admin bypass: ADMIN_LICENSE_KEY puede ser una clave o varias separadas por coma
+    admin_raw = os.getenv("ADMIN_LICENSE_KEY", "").strip()
+    admin_keys = [k.strip() for k in admin_raw.split(",") if k.strip()]
+    if admin_keys and license_key in admin_keys:
         try:
             hwid = get_hwid()
         except HWIDError:

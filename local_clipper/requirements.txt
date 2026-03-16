@@ -22,7 +22,7 @@ faster-whisper==1.0.3
 ctranslate2==4.4.0
 
 # ── AI Clip Selection (llama-cpp-python REQUIRED) ─────────────────────
-llama-cpp-python>=0.2.0
+llama-cpp-python>=0.2.0,<1.0.0
 huggingface_hub>=0.20.0
 
 # ── YouTube Download ─────────────────────────────────────────────────
@@ -32,6 +32,10 @@ yt-dlp>=2024.1.0
 requests==2.32.3
 urllib3>=1.26.0,<2.0.0
 python-dotenv==1.0.1
+
+# ── System / Process utils ───────────────────────────────────────────
+psutil>=5.9.0
+onnxruntime>=1.17.0,<2.0.0
 
 # ── Packaging & Distribution ─────────────────────────────────────────
 setuptools>=68.0.0  # Necesario para pkg_resources (ctranslate2)

@@ -19,9 +19,10 @@ logger = logging.getLogger(__name__)
 
 LogCallback = Callable[[str, str], None]
 
-_SAMPLE_INTERVAL = 0.5   # seconds between sampled frames
-_HIST_THRESHOLD = 0.55   # correlation below this = scene change
+_SAMPLE_INTERVAL = 0.3   # finer sampling for better cut precision
+_HIST_THRESHOLD = 0.50   # slightly more sensitive to catch real transitions
 _HIST_BINS = 64
+_MIN_SCENE_GAP_S = 0.8   # suppress duplicate detections within this window
 
 
 CheckCancelledCallback = Callable[[], None]
@@ -77,7 +78,8 @@ def detect_scene_changes(
                 corr = cv2.compareHist(prev_hist, hist, cv2.HISTCMP_CORREL)
                 if corr < threshold:
                     t = frame_idx / fps
-                    scene_changes.append(round(t, 3))
+                    if not scene_changes or (t - scene_changes[-1]) >= _MIN_SCENE_GAP_S:
+                        scene_changes.append(round(t, 3))
 
             prev_hist = hist
 

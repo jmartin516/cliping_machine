@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -87,21 +88,37 @@ def _download_with_binary(
 
     env = os.environ.copy()
     if ffmpeg_path:
-        env["PATH"] = str(Path(ffmpeg_path).parent) + os.pathsep + env.get("PATH", "")
+        ffmpeg_dir = str(Path(ffmpeg_path).parent)
+        env["PATH"] = ffmpeg_dir + os.pathsep + env.get("PATH", "")
         env["FFMPEG_BINARY"] = ffmpeg_path
+    # When running from a PyInstaller/DMG bundle on macOS, inherited PATH can be minimal.
+    # Ensure /usr/bin and /usr/local/bin are available for ffmpeg and other tools.
+    if getattr(sys, "frozen", False) and sys.platform == "darwin":
+        extra_paths = "/usr/bin:/usr/local/bin"
+        env["PATH"] = env.get("PATH", "") + os.pathsep + extra_paths
+
+    # The yt-dlp binary is also a PyInstaller build. If it inherits DYLD_LIBRARY_PATH etc.
+    # from our app bundle, it loads the wrong Python runtime and fails with:
+    # "Failed to allocate PyConfig structure! Unsupported python version?"
+    for key in ("DYLD_LIBRARY_PATH", "LD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH"):
+        env.pop(key, None)
 
     _log(on_log, f"Using yt-dlp binary: {ytdlp_path.name}", "debug")
     if on_progress:
         on_progress(0.1, "Downloading with yt-dlp…")
 
+    creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    stderr_output: str | None = None
+
     try:
         if check_cancelled:
             proc = subprocess.Popen(
-                cmd, 
-                env=env, 
-                stdout=subprocess.DEVNULL, 
-                stderr=subprocess.DEVNULL,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                cmd,
+                env=env,
+                cwd=str(run_dir),
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                creationflags=creationflags,
             )
             while proc.poll() is None:
                 if check_cancelled:
@@ -112,19 +129,29 @@ def _download_with_binary(
                         proc.wait(timeout=5)
                         raise
                 time.sleep(0.5)
+            if proc.stderr:
+                stderr_output = proc.stderr.read().decode("utf-8", errors="replace").strip()
             if proc.returncode != 0:
-                raise subprocess.CalledProcessError(proc.returncode, cmd)
+                raise subprocess.CalledProcessError(proc.returncode, cmd, stderr=stderr_output or "")
         else:
-            subprocess.run(
-                cmd, 
-                env=env, 
-                check=True, 
-                capture_output=True, 
+            result = subprocess.run(
+                cmd,
+                env=env,
+                cwd=str(run_dir),
+                capture_output=True,
                 timeout=3600,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+                creationflags=creationflags,
             )
+            if result.returncode != 0:
+                stderr_output = result.stderr.decode("utf-8", errors="replace").strip() if result.stderr else ""
+                raise subprocess.CalledProcessError(
+                    result.returncode, cmd, stderr=stderr_output or ""
+                )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as exc:
-        _log(on_log, f"yt-dlp binary failed: {exc}", "warning")
+        err_detail = ""
+        if isinstance(exc, subprocess.CalledProcessError) and getattr(exc, "stderr", None):
+            err_detail = f" | stderr: {exc.stderr[:800]}" if exc.stderr else ""
+        _log(on_log, f"yt-dlp binary failed: {exc}{err_detail}", "warning")
         return None
 
     mp4_files = list(run_dir.glob("*.mp4"))

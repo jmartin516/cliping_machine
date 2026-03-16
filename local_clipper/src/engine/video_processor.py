@@ -274,13 +274,12 @@ def _build_vertical_clip(
     canvas_w = int(src_h * 9 / 16)
     if canvas_w > src_w:
         canvas_w = src_w
-    canvas_h = src_h
+    # Ensure width and height are even (required by libx264 codec)
+    canvas_w = canvas_w & ~1  # Round down to nearest even number
+    canvas_h = src_h & ~1
 
-    # Compute face-tracking trajectory for the wider capture window
-    from src.engine.smart_crop import _ZOOM_OUT_FACTOR
-    capture_w = min(int(canvas_w * _ZOOM_OUT_FACTOR), src_w)
     trajectory = compute_crop_trajectory(
-        str(video_path), capture_w,
+        str(video_path), canvas_w,
         start_time=start_time, end_time=real_end,
         on_log=on_log,
     )
@@ -330,6 +329,7 @@ def _build_split_screen(
 
     src_w, src_h = source.size
     top_h = int(canvas_h * _SPLIT_MAIN_RATIO)
+    top_h = top_h & ~1  # Ensure even for codec
     bot_h = canvas_h - top_h
 
     _log(on_log, f"Split screen: top={top_h}px, bottom={bot_h}px", "debug")
@@ -447,8 +447,11 @@ def _render_single_clip(
         str(output_path),
         codec="libx264",
         audio_codec="aac",
+        audio_bitrate="192k",
+        bitrate="8000k",
         fps=composite.fps,
         preset="medium",
+        ffmpeg_params=["-crf", "18", "-pix_fmt", "yuv420p"],
         threads=max(1, os.cpu_count() or 4),
         logger=None,
         temp_audiofile=str(_temp_audio),
@@ -555,9 +558,10 @@ def analyze_video(
     video_duration = source.duration
     source.close()
 
+    _MAX_CLIP_S = 90
+
     if check_cancelled:
         check_cancelled()
-    # Hybrid: algorithm pre-filters candidates, AI re-ranks (avoids context overflow)
     if on_progress:
         on_progress(0.84, "Pre-filtering candidates…")
     candidates = select_clips(
@@ -568,6 +572,11 @@ def analyze_video(
         scene_changes=scene_changes,
         optimize_for_tiktok=True,
     )
+
+    for c in candidates:
+        if c.end - c.start > _MAX_CLIP_S:
+            c.end = c.start + _MAX_CLIP_S
+
     if on_progress:
         on_progress(0.86, "AI selecting best clips…")
     regions = select_clips_with_ai(
@@ -581,6 +590,14 @@ def analyze_video(
     )
     if not regions:
         regions = candidates[:max_clips]
+
+    for r in regions:
+        if r.end - r.start > _MAX_CLIP_S:
+            r.end = r.start + _MAX_CLIP_S
+        r.segments = [
+            s for s in r.segments
+            if s.get("start", 0) < _MAX_CLIP_S
+        ]
 
     try:
         Path(audio_path).unlink(missing_ok=True)

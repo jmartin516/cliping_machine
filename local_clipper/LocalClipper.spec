@@ -35,6 +35,9 @@ FFMPEG_BUNDLE = PROJECT_ROOT / "ffmpeg_bundle" / PLATFORM_KEY
 datas = []
 if (ASSETS).exists():
     datas.append((str(ASSETS), "assets"))
+LEGAL_DOCS = PROJECT_ROOT / "legal_docs"
+if LEGAL_DOCS.exists():
+    datas.append((str(LEGAL_DOCS), "legal_docs"))
 if (PROJECT_ROOT / ".env").exists():
     datas.append((str(PROJECT_ROOT / ".env"), "."))
 if FFMPEG_BUNDLE.exists() and (FFMPEG_BUNDLE / "installed.crumb").exists():
@@ -54,7 +57,10 @@ for _p in sys.path:
         datas.append((str(cv2_data), "cv2/data"))
         break
 
-# Bundle llama-cpp-python native libraries
+# ── Native libraries & binaries ─────────────────────────────────────────────
+binaries = []
+
+# 1. llama-cpp-python: native .dylib/.so/.dll (required for AI clip selection)
 try:
     import llama_cpp
     _llama_pkg = Path(llama_cpp.__file__).parent
@@ -62,18 +68,53 @@ try:
     if _llama_lib.exists():
         for _f in _llama_lib.iterdir():
             if _f.suffix in (".dylib", ".so", ".dll"):
-                datas.append((str(_f), "llama_cpp/lib"))
+                binaries.append((str(_f), "llama_cpp/lib"))
+    # Apple Silicon: ggml-metal.metal for GPU acceleration
+    _metal = _llama_pkg / "ggml-metal.metal"
+    if _metal.exists():
+        datas.append((str(_metal), "llama_cpp"))
 except Exception:
     pass
 
-# FIX: Agregado psutil para single instance lock robusto
+# 2. ctranslate2: native libs for faster-whisper
+try:
+    from PyInstaller.utils.hooks import collect_dynamic_libs
+    for _b in collect_dynamic_libs("ctranslate2"):
+        binaries.append(_b)
+except Exception:
+    pass
+
+# 3. onnxruntime: used by faster-whisper VAD
+try:
+    from PyInstaller.utils.hooks import collect_dynamic_libs
+    for _b in collect_dynamic_libs("onnxruntime"):
+        binaries.append(_b)
+except Exception:
+    pass
+
+# 4. numpy: native extensions
+try:
+    from PyInstaller.utils.hooks import collect_dynamic_libs
+    for _b in collect_dynamic_libs("numpy"):
+        binaries.append(_b)
+except Exception:
+    pass
+
+# ── Hidden imports: all packages and submodules ─────────────────────────────
 hiddenimports = [
     "faster_whisper",
     "ctranslate2",
     "moviepy",
     "moviepy.editor",
+    "moviepy.audio.AudioClip",
+    "moviepy.video.VideoClip",
+    "moviepy.video.io.VideoFileClip",
+    "moviepy.video.fx.all",
+    "moviepy.audio.fx.all",
     "imageio",
     "imageio_ffmpeg",
+    "imageio.plugins.ffmpeg",
+    "imageio.plugins.pillow",
     "PIL",
     "PIL.Image",
     "PIL.ImageDraw",
@@ -84,49 +125,56 @@ hiddenimports = [
     "static_ffmpeg",
     "static_ffmpeg.run",
     "requests",
+    "urllib3",
+    "certifi",
+    "charset_normalizer",
+    "idna",
     "dotenv",
     "llama_cpp",
     "huggingface_hub",
+    "huggingface_hub.hf_api",
     "src.engine.ai_clip_selector",
-    "psutil",  # FIX: Necesario para verificar procesos
+    "psutil",
+    "decorator",
+    "proglog",
+    "tqdm",
+    "packaging",
+    "packaging.version",
+    "pkg_resources",
 ]
 
-# Collect submodules for packages that use dynamic imports
+# Collect ALL submodules for packages with dynamic imports
 try:
     from PyInstaller.utils.hooks import collect_submodules, collect_data_files
-    try:
-        hiddenimports += collect_submodules("ctranslate2")
-    except Exception:
-        pass
-    try:
-        hiddenimports += collect_submodules("faster_whisper")
-    except Exception:
-        pass
-    try:
-        datas += collect_data_files("static_ffmpeg")
-    except Exception:
-        pass
-    try:
-        datas += collect_data_files("faster_whisper")
-    except Exception:
-        pass
-    # FIX: Incluir datos de psutil
-    try:
-        datas += collect_data_files("psutil")
-    except Exception:
-        pass
+    for pkg in ("ctranslate2", "faster_whisper", "moviepy", "imageio", "PIL", "cv2", "yt_dlp", "huggingface_hub", "onnxruntime"):
+        try:
+            hiddenimports += collect_submodules(pkg)
+        except Exception:
+            pass
+    # Data files
+    for pkg in ("static_ffmpeg", "faster_whisper", "certifi", "customtkinter", "imageio", "psutil", "onnxruntime"):
+        try:
+            datas += collect_data_files(pkg)
+        except Exception:
+            pass
 except ImportError:
     pass
+
+# Deduplicate
+hiddenimports = list(dict.fromkeys(hiddenimports))
+
+_runtime_hook = PROJECT_ROOT / "scripts" / "runtime_hook_libs.py"
+_runtime_hooks = [str(_runtime_hook)] if _runtime_hook.exists() else []
 
 a = Analysis(
     [str(PROJECT_ROOT / "main.py")],
     pathex=[str(PROJECT_ROOT)],
-    binaries=[],
+    binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=_runtime_hooks,
     excludes=[
         "matplotlib",
         "scipy",

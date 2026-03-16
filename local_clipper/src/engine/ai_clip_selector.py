@@ -354,20 +354,26 @@ def _calculate_retention_score(
     score += first_3s_score
     analysis["first_3s_analysis"] = first_3s_info
     
-    # Duration optimization for TikTok
     duration = region.end - region.start
-    if 15 <= duration <= 30:
-        analysis["duration_score"] = 2.0  # Sweet spot
+
+    if duration > 90:
+        analysis["duration_score"] = -15.0
+        score -= 15.0
+    elif 30 <= duration <= 60:
+        analysis["duration_score"] = 3.0
+        score += 3.0
+    elif 20 <= duration < 30:
+        analysis["duration_score"] = 2.0
         score += 2.0
-    elif 30 < duration <= 45:
-        analysis["duration_score"] = 1.0
-        score += 1.0
-    elif duration > 60:
-        analysis["duration_score"] = -1.5  # Penalty for too long
-        score -= 1.5
-    elif duration < 10:
-        analysis["duration_score"] = -2.0  # Penalty for too short
-        score -= 2.0
+    elif 60 < duration <= 75:
+        analysis["duration_score"] = 1.5
+        score += 1.5
+    elif 75 < duration <= 90:
+        analysis["duration_score"] = 0.5
+        score += 0.5
+    elif duration < 15:
+        analysis["duration_score"] = -3.0
+        score -= 3.0
     
     # Energy analysis (laughter, emphasis)
     if baseline_energy > 0 and energy_score > 0:
@@ -485,90 +491,106 @@ def _build_prompt_from_candidates(
     language: str,
 ) -> str:
     """
-    Build TikTok-optimized prompt with Llama 3 chat format.
-    Focuses on retention patterns, hook strength, and viral potential.
-    300-char limit per candidate.
+    Build prompt for Llama 3 chat format.
+    Written from the perspective of a professional videographer who understands
+    pacing, narrative arcs, and what makes people stop scrolling.
+    400-char limit per candidate to give the model more context.
     """
     lang_name = _lang_name(language)
     
-    # Build candidate descriptions with TikTok metadata
     lines = []
     for i, region in enumerate(candidates, 1):
-        text = " ".join([s.get("text", "").strip() for s in region.segments])[:300]
+        text = " ".join([s.get("text", "").strip() for s in region.segments])[:400]
         if not text:
             text = "(no speech)"
         dur = region.end - region.start
         
-        # Include TikTok analysis metadata if available
         analysis = getattr(region, '_tiktok_analysis', {})
-        metadata_parts = []
+        tags = []
         
         first_3s = analysis.get('first_3s_analysis', {})
         if first_3s.get('hook_in_first_3s'):
-            metadata_parts.append("HOOK@3s")
+            tags.append("HOOK")
         if first_3s.get('has_immediate_start'):
-            metadata_parts.append("IMMEDIATE_START")
+            tags.append("FAST_START")
         if first_3s.get('starts_with_filler'):
-            metadata_parts.append("⚠️FILLER")
+            tags.append("FILLER_START")
         
         hook_cats = analysis.get('hook_analysis', {}).get('categories', {})
         if hook_cats:
-            cats = ",".join(hook_cats.keys())[:30]
-            metadata_parts.append(f"CAT:{cats}")
+            tags.extend(list(hook_cats.keys())[:2])
+
+        energy = analysis.get('energy_score', 0)
+        if energy >= 2.0:
+            tags.append("HIGH_ENERGY")
         
-        metadata = f" [{'; '.join(metadata_parts)}]" if metadata_parts else ""
-        lines.append(f"ID:{i} | {dur:.0f}s{metadata} | {text}")
+        tag_str = f" [{', '.join(tags)}]" if tags else ""
+        lines.append(f"ID:{i} | {dur:.0f}s{tag_str} | {text}")
 
     candidates_text = "\n".join(lines)
 
-    system_content = f"""You are an elite TikTok Content Strategist with millions of views under your belt. Your ONLY goal is to identify clips with MAXIMUM VIRAL POTENTIAL.
+    system_content = f"""You are a TikTok/Reels viral content expert with a proven eye for what hooks audiences in the first 3 seconds and keeps them watching until the end. Your job is to identify clip moments that will get maximum watch-time and shares.
 
 LANGUAGE: {lang_name}
 
-TIKTOK VIRALITY CRITERIA (ranked by importance):
+CRITICAL RULES FOR VIRAL SHORT-FORM CONTENT:
 
-1. RETENTION HOOK (Critical - First 1-3 seconds)
-   - Does it IMMEDIATELY grab attention with a bold statement, controversial take, or curiosity gap?
-   - Look for segments marked "HOOK@3s" or "IMMEDIATE_START"
-   - AVOID segments marked "⚠️FILLER" (start with "um", "well", "bueno", etc.)
+1. THE HOOK (First 3 seconds = everything)
+   ✓ Segments tagged "HOOK" or "FAST_START" are GOLD
+   ✗ REJECT anything tagged "FILLER_START"
+   The viewer must be hooked in the FIRST 2 SECONDS or they swipe past. Look for:
+   - A surprising statement or plot twist ("Wait, but...", "Here's the thing...")
+   - A direct question ("Did you know...?", "Guess what happened...")
+   - Raw emotion or reaction (laughter, shock, excitement)
+   - A bold claim that makes you want to hear the answer
 
-2. SELF-CONTAINED STORY (Essential)
-   - Can someone understand this WITHOUT watching the full video?
-   - Does it have a clear beginning → middle → satisfying end/punchline?
-   - Does it deliver a "Value Bomb", "Aha!" moment, or emotional payoff?
+2. THE PAYOFF (Viewer must be SATISFIED)
+   Clips that build tension and DELIVER a payoff are 10x more likely to be shared.
+   Every clip needs a clear resolution or punchline, not just rambling.
+   - Setup → Development → Payoff (this is the magic formula)
+   - Avoid content that ends abruptly or leaves people confused
 
-3. SHAREABILITY FACTOR (High impact)
-   - Would someone send this to a friend? (relatable, shocking, funny, useful)
-   - Does it trigger an emotional response? (laughter, surprise, outrage, inspiration)
-   - Is it a "hot take" or unpopular opinion that sparks debate?
+3. DENSITY & PACING
+   TikTok viewers hate "dead air" or slow moments.
+   - Segments tagged "HIGH_ENERGY" get more engagement
+   - Vary between moments: don't pick 5 similar energy levels
+   - 30-75 seconds is ideal (25-90s absolute max)
 
-4. LOOP POTENTIAL (Nice to have)
-   - Does the ending naturally connect back to the beginning?
-   - Would viewers watch it twice?
+4. AUDIENCE UNDERSTANDING
+   The viewer should INSTANTLY understand what's happening without context.
+   - No internal jokes or references to previous videos
+   - No "as I mentioned before" — this is a standalone moment
+   - Clear cause-and-effect relationship
 
-5. CAPTION-FRIENDLY
-   - Does the audio work well with auto-captions?
-   - Is the speech clear without visual context?
+5. COMPLETENESS
+   Each clip must feel like a finished thought, not a fragment.
+   - Multiple sentences/ideas (not a single sentence)
+   - Visible beginning, middle, and end
+   - If there's a question, it should be answered within the clip
 
 SELECTION STRATEGY:
-- DIVERSITY: Pick clips with DIFFERENT hook types (not all the same)
-- ENERGY: Prefer high-energy moments (laughter, excitement, emphasis)
-- PACING: Avoid segments starting with silence or hesitation
-- CLARITY: The clip should make sense as a standalone piece
+- Start with segments tagged "HOOK" (highest priority)
+- Mix in "HIGH_ENERGY" moments for variety
+- Avoid multiple clips with the same vibe (spread the types)
+- Longer clips (45-75s) are better than short clips (under 25s) if they have payoff
+- Return EXACTLY {max_clips} clips, sorted by start time
 
-INSTRUCTIONS:
-- Review {len(candidates)} candidate segments
-- Select ONLY the {max_clips} with HIGHEST viral potential
-- Prioritize: HOOK@3s + Self-contained + Shareable
-- Return ONLY a JSON array of chosen IDs: [1, 3, 7]
-- NO explanations. NO conversation. ONLY JSON."""
+OUTPUT FORMAT:
+Return ONLY a JSON array of clip IDs (1-indexed): [1, 3, 7, 12, 15]
+NO explanation, NO text, ONLY the JSON array."""
 
-    user_content = f"""VIDEO: {video_duration:.0f}s total | TARGET: {max_clips} clips
+    user_content = f"""VIDEO: {video_duration:.0f}s total | SELECT: {max_clips} VIRAL moments
 
-CANDIDATES:
+🎬 CANDIDATE CLIPS:
 {candidates_text}
 
-Select the {max_clips} clips with maximum TikTok viral potential:"""
+⭐ REMEMBER:
+- Prioritize clips tagged [HOOK] above all else
+- Reject clips tagged [FILLER_START]
+- Mix HIGH_ENERGY with other moments for variety
+- Each clip must have a clear beginning and end
+
+Return the {max_clips} best clip IDs as a JSON array:"""
 
     return system_content, user_content
 
@@ -645,11 +667,20 @@ def select_clips_with_ai(
                 "Install it with: pip install llama-cpp-python"
             ) from None
 
+        # Only offload to GPU if CUDA is actually available; otherwise CPU only
+        _gpu_layers = 0
+        try:
+            import ctranslate2
+            if "cuda" in (ctranslate2.get_supported_compute_types("cuda") or []):
+                _gpu_layers = -1
+        except Exception:
+            pass
+
         llm = Llama(
             model_path=str(model_path),
             n_ctx=4096,
             n_threads=4,
-            n_gpu_layers=-1,
+            n_gpu_layers=_gpu_layers,
             verbose=False,
         )
 
@@ -667,9 +698,10 @@ def select_clips_with_ai(
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content},
         ],
-        max_tokens=256,
-        temperature=0.3,
-        stop=["```", "\n\n\n"],
+        max_tokens=128,
+        temperature=0.15,
+        top_p=0.9,
+        stop=["```", "\n\n\n", "Explanation", "Note"],
     )
 
     text = response.get("choices", [{}])[0].get("message", {}).get("content", "")
