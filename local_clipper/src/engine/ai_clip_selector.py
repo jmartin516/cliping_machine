@@ -492,15 +492,17 @@ def _build_prompt_from_candidates(
 ) -> str:
     """
     Build prompt for Llama 3 chat format.
-    Written from the perspective of a professional videographer who understands
-    pacing, narrative arcs, and what makes people stop scrolling.
-    400-char limit per candidate to give the model more context.
+    Optimized for context window: max 10 candidates with 150-char text limit.
     """
     lang_name = _lang_name(language)
-    
+
+    # Limit candidates to prevent context overflow on long videos
+    max_candidates = min(10, len(candidates))
+    candidates = candidates[:max_candidates]
+
     lines = []
     for i, region in enumerate(candidates, 1):
-        text = " ".join([s.get("text", "").strip() for s in region.segments])[:400]
+        text = " ".join([s.get("text", "").strip() for s in region.segments])[:150]
         if not text:
             text = "(no speech)"
         dur = region.end - region.start
@@ -529,68 +531,31 @@ def _build_prompt_from_candidates(
 
     candidates_text = "\n".join(lines)
 
-    system_content = f"""You are a TikTok/Reels viral content expert with a proven eye for what hooks audiences in the first 3 seconds and keeps them watching until the end. Your job is to identify clip moments that will get maximum watch-time and shares.
+    system_content = f"""You are a viral TikTok/Reels editor. Pick clips that hook in 3 seconds and deliver payoff.
 
 LANGUAGE: {lang_name}
 
-CRITICAL RULES FOR VIRAL SHORT-FORM CONTENT:
+RULES:
+1. HOOK FIRST: Clips tagged [HOOK] or [FAST_START] are priority. REJECT [FILLER_START].
+2. PAYOFF: Each clip needs setup → payoff. No rambling or abrupt ends.
+3. VARIETY: Mix different energy levels. Don't pick similar clips.
+4. STANDALONE: Viewer understands instantly. No context needed.
+5. DURATION: 30-75s ideal. Avoid under 25s unless it's a perfect hook+payoff.
 
-1. THE HOOK (First 3 seconds = everything)
-   ✓ Segments tagged "HOOK" or "FAST_START" are GOLD
-   ✗ REJECT anything tagged "FILLER_START"
-   The viewer must be hooked in the FIRST 2 SECONDS or they swipe past. Look for:
-   - A surprising statement or plot twist ("Wait, but...", "Here's the thing...")
-   - A direct question ("Did you know...?", "Guess what happened...")
-   - Raw emotion or reaction (laughter, shock, excitement)
-   - A bold claim that makes you want to hear the answer
+PRIORITY ORDER:
+1. [HOOK] + [HIGH_ENERGY] = GOLD
+2. [FAST_START] + payoff = GOOD
+3. [HIGH_ENERGY] varied moments = GOOD
+4. Everything else = consider only if truly unique
 
-2. THE PAYOFF (Viewer must be SATISFIED)
-   Clips that build tension and DELIVER a payoff are 10x more likely to be shared.
-   Every clip needs a clear resolution or punchline, not just rambling.
-   - Setup → Development → Payoff (this is the magic formula)
-   - Avoid content that ends abruptly or leaves people confused
+Return exactly {max_clips} IDs as JSON array. No text."""
 
-3. DENSITY & PACING
-   TikTok viewers hate "dead air" or slow moments.
-   - Segments tagged "HIGH_ENERGY" get more engagement
-   - Vary between moments: don't pick 5 similar energy levels
-   - 30-75 seconds is ideal (25-90s absolute max)
+    user_content = f"""Video length: {video_duration:.0f}s | Select: {max_clips} clips
 
-4. AUDIENCE UNDERSTANDING
-   The viewer should INSTANTLY understand what's happening without context.
-   - No internal jokes or references to previous videos
-   - No "as I mentioned before" — this is a standalone moment
-   - Clear cause-and-effect relationship
-
-5. COMPLETENESS
-   Each clip must feel like a finished thought, not a fragment.
-   - Multiple sentences/ideas (not a single sentence)
-   - Visible beginning, middle, and end
-   - If there's a question, it should be answered within the clip
-
-SELECTION STRATEGY:
-- Start with segments tagged "HOOK" (highest priority)
-- Mix in "HIGH_ENERGY" moments for variety
-- Avoid multiple clips with the same vibe (spread the types)
-- Longer clips (45-75s) are better than short clips (under 25s) if they have payoff
-- Return EXACTLY {max_clips} clips, sorted by start time
-
-OUTPUT FORMAT:
-Return ONLY a JSON array of clip IDs (1-indexed): [1, 3, 7, 12, 15]
-NO explanation, NO text, ONLY the JSON array."""
-
-    user_content = f"""VIDEO: {video_duration:.0f}s total | SELECT: {max_clips} VIRAL moments
-
-🎬 CANDIDATE CLIPS:
+CANDIDATES (top-ranked by algorithm):
 {candidates_text}
 
-⭐ REMEMBER:
-- Prioritize clips tagged [HOOK] above all else
-- Reject clips tagged [FILLER_START]
-- Mix HIGH_ENERGY with other moments for variety
-- Each clip must have a clear beginning and end
-
-Return the {max_clips} best clip IDs as a JSON array:"""
+Pick {max_clips} best IDs. Prioritize [HOOK] and [HIGH_ENERGY]. JSON array only:"""
 
     return system_content, user_content
 
