@@ -30,7 +30,7 @@ cd local_clipper
 build.bat
 ```
 
-**Salida:** `dist/LocalClipper.exe`
+**Salida:** carpeta `dist/LocalClipper`
 
 ---
 
@@ -49,11 +49,11 @@ Archivo resultante: `CustosAI-Clipper-macOS.zip`
 
 ```bash
 cd local_clipper
-# Opción A: Solo el .exe (más ligero)
-Compress-Archive -Path dist/LocalClipper.exe -DestinationPath CustosAI-Clipper-Windows.zip
+# Con PowerShell en Windows
+Compress-Archive -Path dist/LocalClipper -DestinationPath CustosAI-Clipper-Windows.zip
 
-# Opción B: Con PowerShell en cualquier sistema
-zip CustosAI-Clipper-Windows.zip dist/LocalClipper.exe
+# Con zip en Mac/Linux
+zip -r CustosAI-Clipper-Windows.zip dist/LocalClipper
 ```
 
 Archivo resultante: `CustosAI-Clipper-Windows.zip`
@@ -113,7 +113,7 @@ Incluye en la descripción del producto o en un README:
 **Windows:**
 1. Descargar `CustosAI-Clipper-Windows.zip`
 2. Descomprimir
-3. Ejecutar `LocalClipper.exe` (si SmartScreen muestra advertencia: "Más información" → "Ejecutar de todas formas")
+3. Entrar a la carpeta y ejecutar `LocalClipper.exe` (si SmartScreen muestra advertencia: "Más información" → "Ejecutar de todas formas")
 
 ---
 

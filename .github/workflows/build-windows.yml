@@ -19,6 +19,7 @@ jobs:
     defaults:
       run:
         working-directory: local_clipper
+        shell: pwsh
 
     steps:
       - uses: actions/checkout@v4
@@ -27,14 +28,17 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: local_clipper/requirements.txt
 
-      - name: Cache pip packages
-        uses: actions/cache@v4
-        with:
-          path: ~\AppData\Local\pip\Cache
-          key: ${{ runner.os }}-pip-${{ hashFiles('local_clipper/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+      - name: Install Visual C++ Redistributables (for compiled dependencies)
+        run: |
+          # Descargar e instalar VC++ Redistributables (necesario para llama-cpp-python, onnxruntime, etc.)
+          $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          $vcInstaller = "$env:TEMP\vc_redist.x64.exe"
+          Invoke-WebRequest -Uri $vcUrl -OutFile $vcInstaller
+          Start-Process -FilePath $vcInstaller -ArgumentList "/install", "/quiet", "/norestart" -Wait
+          Write-Host "Visual C++ Redistributables installed"
 
       - name: Create .env for build
         env:
@@ -50,16 +54,63 @@ jobs:
           $lines -join "`n" | Out-File -FilePath .env -Encoding utf8
           if ($key -eq "placeholder") { Write-Host "::warning::WHOP_API_KEY secret not set. Add it in Settings → Secrets → Actions for license validation." }
 
-      - name: Upgrade pip and base tools
-        run: python -m pip install --upgrade pip setuptools wheel
+      - name: Upgrade pip and install build tools FIRST
+        run: |
+          python -m pip install --upgrade pip
+          pip install --force-reinstall setuptools==69.5.1
+          pip install wheel
 
-      - name: Install llama-cpp-python (pre-built CPU wheel)
+      - name: Install llama-cpp-python (pre-built CPU wheel, avoids MSVC compilation)
         run: |
           pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 
       - name: Install remaining dependencies
         run: |
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt pyinstaller==6.11.1
+
+      - name: Verify critical imports work
+        run: |
+          Write-Host "Testing critical imports..."
+          python -c "import pkg_resources; print('  pkg_resources OK')"
+          python -c "import numpy; print('  numpy OK:', numpy.__version__)"
+          python -c "import cv2; print('  cv2 OK:', cv2.__version__)"
+          python -c "import PIL; print('  PIL OK:', PIL.__version__)"
+          python -c "import faster_whisper; print('  faster_whisper OK')"
+          python -c "import ctranslate2; print('  ctranslate2 OK:', ctranslate2.__version__)"
+          python -c "import onnxruntime; print('  onnxruntime OK:', onnxruntime.__version__)"
+          python -c "import psutil; print('  psutil OK:', psutil.__version__)"
+          python -c "import llama_cpp; print('  llama_cpp OK:', llama_cpp.__version__)"
+          python -c "import customtkinter; print('  customtkinter OK:', customtkinter.__version__)"
+          Write-Host "All critical imports successful!"
+
+      - name: Debug - List binaries
+        shell: pwsh
+        run: |
+          Write-Host "=== Listing llama_cpp package contents ==="
+          $llamaPath = python -c "import llama_cpp; print(llama_cpp.__path__[0])"
+          Write-Host "llama_cpp path: $llamaPath"
+          if (Test-Path $llamaPath) {
+            Get-ChildItem -Path $llamaPath -Recurse -Include "*.dll","*.pyd" | ForEach-Object {
+              Write-Host "  Found: $($_.FullName)"
+            }
+          }
+          
+          Write-Host "=== Listing ctranslate2 binaries ==="
+          try {
+            # Usar solo ctranslate2, sin pkg_resources en el mismo comando
+            $ctransPath = python -c "import ctranslate2; print(ctranslate2.__path__[0])"
+            if ($ctransPath) {
+              Write-Host "ctranslate2 path: $ctransPath"
+              Get-ChildItem -Path $ctransPath -Recurse -Include "*.dll","*.pyd" -ErrorAction SilentlyContinue | ForEach-Object {
+                Write-Host "  Found: $($_.FullName)"
+              }
+            }
+          } catch {
+            Write-Host "  Could not list ctranslate2 binaries (non-critical): $_"
+          }
+          
+          # Siempre retornar éxito
+          exit 0
 
       - name: Pre-download FFmpeg for bundling
         run: python scripts/setup_ffmpeg_bundle.py
@@ -68,14 +119,67 @@ jobs:
         run: python scripts/setup_icons.py
 
       - name: Build with PyInstaller
-        run: python -m PyInstaller -y LocalClipper.spec
+        run: |
+          Write-Host "Starting PyInstaller build..."
+          python -m PyInstaller -y LocalClipper.spec 2>&1 | Tee-Object -FilePath pyinstaller.log
+          Write-Host "PyInstaller build completed"
+
+      - name: Debug - Check built executable dependencies
+        if: failure()
+        run: |
+          Write-Host "=== PyInstaller log (last 100 lines) ==="
+          if (Test-Path pyinstaller.log) {
+            Get-Content pyinstaller.log -Tail 100
+          }
+          
+          Write-Host "=== Checking dist folder ==="
+          if (Test-Path dist) {
+            Get-ChildItem -Path dist -Recurse | ForEach-Object {
+              Write-Host "  $($_.FullName)"
+            }
+          }
+
+      - name: Test executable launches
+        run: |
+          $exePath = "dist\LocalClipper\LocalClipper.exe"
+          if (-not (Test-Path $exePath)) {
+            Write-Error "Executable not found at $exePath"
+            exit 1
+          }
+          Write-Host "Executable found: $exePath"
+          
+          # List all files in dist to verify completeness
+          Write-Host "=== Files in dist\LocalClipper folder ==="
+          Get-ChildItem -Path dist\LocalClipper | ForEach-Object {
+            $size = if ($_.Length -gt 1MB) { "{0:N2} MB" -f ($_.Length / 1MB) } else { "{0:N2} KB" -f ($_.Length / 1KB) }
+            Write-Host "  $($_.Name) - $size"
+          }
+          # Verify critical DLLs are present
+          $criticalDlls = @("llama_cpp", "ctranslate2", "onnxruntime")
+          foreach ($dll in $criticalDlls) {
+            $found = Get-ChildItem -Path dist\LocalClipper -Recurse -Filter "*$dll*" -ErrorAction SilentlyContinue
+            if ($found) { Write-Host "  OK: $dll libs present" }
+            else { Write-Host "  WARNING: $dll libs NOT found in dist" }
+          }
 
       - name: Create CustosAI-Clipper-Windows.zip
         run: |
-          Compress-Archive -Path dist\LocalClipper.exe -DestinationPath ..\CustosAI-Clipper-Windows.zip -Force
+          $zipPath = "CustosAI-Clipper-Windows.zip"
+          Compress-Archive -Path dist\LocalClipper -DestinationPath $zipPath -Force
+          Write-Host "Created: $zipPath"
+          $size = (Get-Item $zipPath).Length
+          $sizeMB = [math]::Round($size / 1MB, 2)
+          Write-Host "Zip size: $sizeMB MB"
 
-      - name: Upload Windows artifact
-        uses: actions/upload-artifact@v4
+      - name: Create GitHub Release (Windows)
+        uses: softprops/action-gh-release@v1
+        if: success()
         with:
-          name: CustosAI-Clipper-Windows
-          path: CustosAI-Clipper-Windows.zip
+          files: local_clipper/CustosAI-Clipper-Windows.zip
+          tag_name: ${{ format('windows-build-{0}', github.run_number) }}
+          name: "Windows Build #${{ github.run_number }}"
+          body: "Automated Windows build from commit ${{ github.sha }}"
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

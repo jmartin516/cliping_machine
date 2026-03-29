@@ -84,11 +84,11 @@ python -m PyInstaller LocalClipper.spec
 
 **Crear ZIP para distribución:**
 ```powershell
-Compress-Archive -Path dist\LocalClipper.exe -DestinationPath CustosAI-Clipper-Windows.zip
+Compress-Archive -Path dist\LocalClipper -DestinationPath CustosAI-Clipper-Windows.zip
 ```
 
 **Resultado:**
-- **Windows:** `dist/LocalClipper.exe` → empaquetar en `CustosAI-Clipper-Windows.zip`
+- **Windows:** carpeta `dist/LocalClipper` → empaquetar en `CustosAI-Clipper-Windows.zip`
 - **macOS:** `dist/LocalClipper.app` → DMG o `CustosAI-Clipper-macOS.zip`
 
 El `.env` se incluye automáticamente para validar licencias.
@@ -109,11 +109,11 @@ Así los compradores verán su licencia en el área de miembros y podrán copiar
 ## 4. Subir el ejecutable a Whop
 
 **Opción A: Descarga directa**
-- Sube `LocalClipper.exe` (Windows) o `LocalClipper.app` (macOS) como archivo descargable. En macOS, el usuario puede hacer doble clic para abrir.
+- Sube `CustosAI-Clipper-Windows.zip` (Windows) o `LocalClipper.app` (macOS) como archivo descargable. En macOS, el usuario puede hacer doble clic para abrir.
 - En la descripción del producto indica: "Descarga el ejecutable, ábrelo, pega tu licencia y activa"
 
 **Opción B: Dos builds (Windows + macOS)**
-- Haz un build en Windows → `LocalClipper.exe`
+- Haz un build en Windows → `CustosAI-Clipper-Windows.zip`
 - Haz un build en macOS → `LocalClipper.app`
 - Ofrece ambos como descargas según el sistema del usuario
 

@@ -45,20 +45,18 @@ local_clipper/
 ├── main.py                        # Application entry point
 ├── requirements.txt               # Pinned dependencies
 ├── LocalClipper.spec              # PyInstaller build config
+├── build.sh / build.bat           # Build scripts
 ├── .env.example                   # Environment variable template
 ├── assets/                        # icon.ico / icon.icns for app icon
+├── docs/                          # Documentation (deployment, security, etc.)
+├── archive/                       # Backup files (not used in build)
+├── legal_docs/                    # Privacy policy, terms of service
+├── scripts/                       # Build utilities (pty launcher, FFmpeg, icons)
 └── src/
-    ├── auth/
-    │   ├── hwid.py                # Cross-platform Hardware ID extraction
-    │   └── whop_api.py            # Whop license validation client
-    ├── engine/
-    │   ├── ai_transcriber.py       # faster-whisper model loading & transcription
-    │   └── video_processor.py     # Crop, subtitle overlay, render pipeline
-    ├── gui/
-    │   ├── app.py                 # Main window — Login, Setup, Dashboard views
-    │   └── components.py          # Reusable widgets (LogConsole, ProgressBar, etc.)
-    └── utils/
-        └── paths.py               # Path resolution (source vs PyInstaller bundle)
+    ├── auth/                      # License validation, HWID, Whop API
+    ├── engine/                    # Transcription, clip selection, video processing
+    ├── gui/                       # CustomTkinter UI
+    └── utils/                     # Paths, yt-dlp updater
 ```
 
 ---

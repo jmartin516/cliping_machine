@@ -1,7 +1,7 @@
 @echo off
 REM CustosAI Clipper — Build script for Windows
 REM Run from local_clipper: build.bat
-REM Output: dist\LocalClipper.exe
+REM Output: dist\LocalClipper\LocalClipper.exe
 
 cd /d "%~dp0"
 
@@ -66,9 +66,9 @@ if errorlevel 1 (
 
 echo.
 echo === Build complete ===
-echo Output: dist\LocalClipper.exe
+echo Output: dist\LocalClipper\LocalClipper.exe
 echo.
-echo To create ZIP: Right-click dist\LocalClipper.exe -^> Send to -^> Compressed folder
-echo Or run: powershell Compress-Archive -Path dist\LocalClipper.exe -DestinationPath CustosAI-Clipper-Windows.zip
+echo To create ZIP: Right-click dist\LocalClipper -^> Send to -^> Compressed folder
+echo Or run: powershell Compress-Archive -Path dist\LocalClipper -DestinationPath CustosAI-Clipper-Windows.zip
 echo.
 pause

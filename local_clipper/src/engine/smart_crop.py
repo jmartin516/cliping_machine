@@ -28,13 +28,13 @@ logger = logging.getLogger(__name__)
 
 LogCallback = Callable[[str, str], None]
 
-_SAMPLE_INTERVAL = 0.5           # seconds between analysed frames (fewer = less jumpy)
+_SAMPLE_INTERVAL = 0.5           # ~2 samples/sec for smoother, less jerky tracking
 _DOWNSCALE_WIDTH = 320           # resize width for face detection (speed)
-_EMA_ALPHA = 0.15                # smoothing factor (lower = smoother pan, less dizzy)
-_FACE_SCALE_FACTOR = 1.15
-_FACE_MIN_NEIGHBOURS = 5
-_FACE_MIN_SIZE_RATIO = 0.06     # min face size as fraction of frame width
-_ZOOM_OUT_FACTOR = 1.15          # capture 15 % wider than 9:16, then resize
+_EMA_ALPHA_FACE = 0.03           # less responsive, smoother panning to reduce dizziness
+_EMA_ALPHA_NO_FACE = 0.008       # even slower drift back to center when no face
+_FACE_SCALE_FACTOR = 1.12
+_FACE_MIN_NEIGHBOURS = 4
+_FACE_MIN_SIZE_RATIO = 0.05     # min face size as fraction of frame width
 
 
 def _get_cascade_path() -> str:
@@ -126,19 +126,19 @@ def compute_crop_trajectory(
             if x_center is not None:
                 face_hits += 1
             else:
-                x_center = _detect_motion(small, prev_gray, scale, src_w)
-                if x_center is not None:
-                    motion_hits += 1
+                # Disabled motion tracking as it causes wild jumping on web browser scenes
+                x_center = None
 
             prev_gray = small
 
             if x_center is not None:
-                x_off = int(x_center - canvas_w / 2)
+                # Position face at 35% of canvas width (not center) to show action context
+                x_off = int(x_center - canvas_w * 0.35)
                 x_off = max(0, min(x_off, src_w - canvas_w))
+                raw_points.append((rel_t, x_off, True)) # True = face/motion detected
             else:
                 x_off = default_x
-
-            raw_points.append((rel_t, x_off))
+                raw_points.append((rel_t, x_off, False)) # False = fallback to center
 
             if clip_frames > 0 and on_log:
                 pct = int(frame_idx / clip_frames * 100)
@@ -159,7 +159,7 @@ def compute_crop_trajectory(
     _log(
         on_log,
         f"Smart crop: {len(smoothed)} samples, "
-        f"{face_hits} face detections, {motion_hits} motion fallbacks",
+        f"{face_hits} face detections (motion fallback disabled)",
         "info",
     )
     return smoothed
@@ -185,10 +185,20 @@ def _detect_faces(
     if len(faces) == 0:
         return None
 
-    # Use largest face only — avoids jumpy pan when 2+ faces
-    largest = max(faces, key=lambda f: f[2] * f[3])
-    x, y, w, h = largest
-    return int((x + w / 2) / scale)
+    # If there are multiple faces, track the center point between all of them
+    # Instead of just snapping to the single largest one
+    total_x = 0
+    total_y = 0
+    total_weight = 0
+
+    for x, y, w, h in faces:
+        area = w * h
+        total_x += (x + w / 2) * area
+        total_y += (y + h / 2) * area
+        total_weight += area
+        
+    avg_x = total_x / total_weight
+    return int(avg_x / scale)
 
 
 # ── Motion fallback ──────────────────────────────────────────────────────────
@@ -224,7 +234,7 @@ def _detect_motion(
 
 
 def _smooth_trajectory(
-    raw: list[tuple[float, int]],
+    raw: list[tuple[float, int, bool]],
     src_w: int,
     canvas_w: int,
 ) -> list[tuple[float, int]]:
@@ -236,8 +246,10 @@ def _smooth_trajectory(
     prev = raw[0][1]
     max_off = src_w - canvas_w
 
-    for t, x in raw:
-        s = _EMA_ALPHA * x + (1 - _EMA_ALPHA) * prev
+    for t, x, detected in raw:
+        # Use a slower smoothing factor when tracking defaults to center so it doesn't snap abruptly
+        alpha = _EMA_ALPHA_FACE if detected else _EMA_ALPHA_NO_FACE
+        s = alpha * x + (1 - alpha) * prev
         clamped = max(0, min(int(s), max_off))
         smoothed.append((t, clamped))
         prev = s
@@ -256,29 +268,33 @@ def apply_smart_crop(
 ) -> VideoClip:
     """Return a new clip dynamically cropped per-frame using *trajectory*.
 
-    Captures a region wider than *canvas_w* (controlled by
-    ``_ZOOM_OUT_FACTOR``) and resizes it down, giving a slight zoom-out
-    so faces don't fill the entire frame.
+    Performs a 1:1 pixel crop (no zoom/resize) so the full scene detail is
+    preserved. The horizontal position follows the face-tracking trajectory
+    and the vertical crop is centred.
 
-    If *canvas_h* is given (split-screen mode), the vertical crop is also
-    centre-based with that height. Otherwise the full source height is kept.
+    If *canvas_h* is given (split-screen mode), the vertical crop uses that
+    height. Otherwise the full source height is kept.
     """
     src_w, src_h = source.size
     out_h = canvas_h if canvas_h is not None else src_h
 
-    capture_w = min(int(canvas_w * _ZOOM_OUT_FACTOR), src_w)
-    capture_h = min(int(out_h * _ZOOM_OUT_FACTOR), src_h)
-    y1 = max(0, (src_h - capture_h) // 2)
+    crop_w = min(canvas_w, src_w)
+    crop_h = min(out_h, src_h)
+    y1 = max(0, (src_h - crop_h) // 2)
 
     times = np.array([t for t, _ in trajectory], dtype=np.float64)
     offsets = np.array([x for _, x in trajectory], dtype=np.float64)
 
+    needs_resize = (crop_w != canvas_w) or (crop_h != out_h)
+
     def _make_frame(t: float) -> np.ndarray:
         frame = source.get_frame(t)
         x = int(np.interp(t, times, offsets))
-        x = max(0, min(x, src_w - capture_w))
-        cropped = frame[y1 : y1 + capture_h, x : x + capture_w]
-        return cv2.resize(cropped, (canvas_w, out_h), interpolation=cv2.INTER_AREA)
+        x = max(0, min(x, src_w - crop_w))
+        cropped = frame[y1 : y1 + crop_h, x : x + crop_w]
+        if needs_resize:
+            return cv2.resize(cropped, (canvas_w, out_h), interpolation=cv2.INTER_AREA)
+        return cropped
 
     result = VideoClip(_make_frame, duration=source.duration)
     result.fps = source.fps

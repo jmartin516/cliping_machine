@@ -123,9 +123,16 @@ def transcribe(
     segments_iter, info = model.transcribe(
         str(audio_path),
         beam_size=5,
+        best_of=5,
         vad_filter=True,
-        vad_parameters=dict(min_silence_duration_ms=500),
+        vad_parameters=dict(
+            min_silence_duration_ms=400,
+            speech_pad_ms=200,
+            threshold=0.45,
+        ),
         word_timestamps=True,
+        condition_on_previous_text=True,
+        no_speech_threshold=0.5,
     )
 
     _log(
