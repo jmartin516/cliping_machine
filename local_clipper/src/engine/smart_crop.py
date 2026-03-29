@@ -30,7 +30,7 @@ LogCallback = Callable[[str, str], None]
 
 _SAMPLE_INTERVAL = 0.5           # seconds between analysed frames (fewer = less jumpy)
 _DOWNSCALE_WIDTH = 320           # resize width for face detection (speed)
-_EMA_ALPHA = 0.10                # smoothing factor (lower = smoother pan, less dizzy)
+_EMA_ALPHA = 0.15                # smoothing factor (lower = smoother pan, less dizzy)
 _FACE_SCALE_FACTOR = 1.15
 _FACE_MIN_NEIGHBOURS = 5
 _FACE_MIN_SIZE_RATIO = 0.06     # min face size as fraction of frame width

@@ -46,7 +46,7 @@ _HIGHLIGHT_COLOR = (255, 255, 0)        # Yellow for the spoken word
 _NORMAL_COLOR = (255, 255, 255)         # White for other words
 _STROKE_RGB = (0, 0, 0)                 # Black outline
 _STROKE_WIDTH = 4
-_WORDS_PER_GROUP = 3
+_WORDS_PER_GROUP = 2
 _SUBTITLE_Y_RATIO = 0.68               # Vertical position (% of frame height)
 
 # Split-screen layout: top portion gets main content, bottom gets background

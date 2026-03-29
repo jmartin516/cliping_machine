@@ -28,6 +28,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('local_clipper/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - name: Create .env for build
         env:
           WHOP_API_KEY: ${{ secrets.WHOP_API_KEY }}
@@ -42,9 +50,15 @@ jobs:
           $lines -join "`n" | Out-File -FilePath .env -Encoding utf8
           if ($key -eq "placeholder") { Write-Host "::warning::WHOP_API_KEY secret not set. Add it in Settings → Secrets → Actions for license validation." }
 
-      - name: Install dependencies
+      - name: Upgrade pip and base tools
+        run: python -m pip install --upgrade pip setuptools wheel
+
+      - name: Install llama-cpp-python (pre-built CPU wheel)
         run: |
-          python -m pip install --upgrade pip
+          pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+
+      - name: Install remaining dependencies
+        run: |
           pip install -r requirements.txt pyinstaller
 
       - name: Pre-download FFmpeg for bundling

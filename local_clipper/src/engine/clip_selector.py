@@ -31,46 +31,46 @@ _WINDOW_STEP_S = 2.0
 _CONTENT_TYPE_PATTERNS = {
     "quick_tip": {
         "patterns": [
-            r"\btrick\b", r"\btip\b", r"\bhack\b", r"\bhow to\b", 
+            r"\btrick\b", r"\btip\b", r"\bhack\b", r"\bhow to\b",
             r"\btruco\b", r"\bconsejo\b", r"\bcomo\s+hacer\b",
             r"\bdica\b", r"\btruque\b", r"\btutorial\b",
         ],
-        "optimal_duration": (15, 25),  # Quick tips work best short
+        "optimal_duration": (60, 90),  # Monetization: 60s minimum for Creator Rewards
     },
     "storytime": {
         "patterns": [
             r"\bstorytime\b", r"\bcuento\b", r"\bhistoria\b", r"\bme pas[oó]\b",
             r"\bstory\s*time\b", r"\bel otro d[ií]a\b", r"\buna vez\b",
         ],
-        "optimal_duration": (45, 60),  # Stories need more time
+        "optimal_duration": (60, 120),  # Stories fit well in 1-2 min
     },
     "reaction": {
         "patterns": [
             r"\breaction\b", r"\breacci[oó]n\b", r"\breacting\b", r"\breact\b",
             r"\bmira esto\b", r"\bves esto\b",
         ],
-        "optimal_duration": (30, 45),
+        "optimal_duration": (60, 90),
     },
     "pov": {
         "patterns": [
             r"\bpov\s*:?\b", r"\bpoint of view\b", r"\bcuando\s+eres\b",
             r"\bese momento\b",
         ],
-        "optimal_duration": (15, 30),
+        "optimal_duration": (60, 90),
     },
     "transformation": {
         "patterns": [
             r"\btransformation\b", r"\bantes\s+y\s+despu[eé]s\b", r"\bantes y despues\b",
             r"\bresultado\b", r"\bantes de\b",
         ],
-        "optimal_duration": (20, 35),
+        "optimal_duration": (60, 90),
     },
     "ranking": {
         "patterns": [
             r"\branking\b", r"\btop\s+\d+\b", r"\bmejores\b", r"\bpeores\b",
             r"\brating\b", r"\bpuntuando\b", r"\bvalorando\b",
         ],
-        "optimal_duration": (30, 50),
+        "optimal_duration": (60, 100),
     },
 }
 
@@ -108,7 +108,7 @@ def _detect_content_type(segments: list[Segment]) -> tuple[str, tuple[int, int]]
                 return content_type, config["optimal_duration"]
     
     # Default: general content
-    return "general", (25, 45)
+    return "general", (60, 90)
 
 
 def _calculate_emotion_score(segments: list[Segment], start: float, end: float) -> float:
@@ -181,7 +181,7 @@ def _calculate_tiktok_score(
 def select_clips(
     segments: list[Segment],
     video_duration: float,
-    clip_length: int = 45,
+    clip_length: int = 90,
     max_clips: int = 5,
     merge_gap: float = 5.0,
     scene_changes: Optional[list[float]] = None,
@@ -232,7 +232,7 @@ def select_clips(
     if optimize_for_tiktok:
         for window in windows:
             tiktok_boost = _calculate_tiktok_score(window, segments, optimal_duration)
-            window.score += tiktok_boost * 0.1  # Weight TikTok factors at 10%
+            window.score += tiktok_boost * 0.35  # Weight TikTok factors at 35%
 
     selected = _non_max_suppression(windows, max_clips)
     merged = _merge_nearby(selected, merge_gap, video_duration)

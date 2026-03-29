@@ -30,8 +30,11 @@ yt-dlp>=2024.1.0
 
 # ── Networking & Security ────────────────────────────────────────────
 requests==2.32.3
-urllib3>=1.26.0,<2.0.0
+urllib3>=1.26.0,<3.0.0
 python-dotenv==1.0.1
+
+# ── System (required by PyInstaller spec hiddenimports) ──────────────
+psutil>=5.9.0
 
 # ── Packaging (install separately in build env) ─────────────────────
 # pyinstaller==6.9.0

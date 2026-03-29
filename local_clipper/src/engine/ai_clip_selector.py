@@ -295,7 +295,7 @@ def _analyze_first_3_seconds(
     filler_count = sum(1 for word in first_words if word in _FILLER_WORDS)
     if filler_count > 0:
         analysis["starts_with_filler"] = True
-        score_adjustment -= filler_count * 0.8  # -0.8 per filler word
+        score_adjustment -= filler_count * 1.5  # -1.5 per filler word (hard retention killer)
     
     # Check if hook is in first 3 seconds
     text_in_3s = " ".join([
@@ -354,19 +354,22 @@ def _calculate_retention_score(
     score += first_3s_score
     analysis["first_3s_analysis"] = first_3s_info
     
-    # Duration optimization for TikTok
+    # Duration optimization for monetization (TikTok Creator Rewards: min 60s)
     duration = region.end - region.start
-    if 15 <= duration <= 30:
-        analysis["duration_score"] = 2.0  # Sweet spot
+    if 60 <= duration <= 90:
+        analysis["duration_score"] = 2.0  # Sweet spot for monetization
         score += 2.0
-    elif 30 < duration <= 45:
-        analysis["duration_score"] = 1.0
-        score += 1.0
-    elif duration > 60:
-        analysis["duration_score"] = -1.5  # Penalty for too long
-        score -= 1.5
-    elif duration < 10:
-        analysis["duration_score"] = -2.0  # Penalty for too short
+    elif 90 < duration <= 120:
+        analysis["duration_score"] = 1.5
+        score += 1.5
+    elif 45 <= duration < 60:
+        analysis["duration_score"] = 0.5  # Acceptable but below monetization floor
+        score += 0.5
+    elif duration > 120:
+        analysis["duration_score"] = -0.5  # Slight penalty above 2 min
+        score -= 0.5
+    elif duration < 30:
+        analysis["duration_score"] = -2.0  # Too short for monetization
         score -= 2.0
     
     # Energy analysis (laughter, emphasis)
@@ -530,7 +533,7 @@ TIKTOK VIRALITY CRITERIA (ranked by importance):
 1. RETENTION HOOK (Critical - First 1-3 seconds)
    - Does it IMMEDIATELY grab attention with a bold statement, controversial take, or curiosity gap?
    - Look for segments marked "HOOK@3s" or "IMMEDIATE_START"
-   - AVOID segments marked "⚠️FILLER" (start with "um", "well", "bueno", etc.)
+   - AVOID segments marked "FILLER" (start with "um", "well", "bueno", etc.)
 
 2. SELF-CONTAINED STORY (Essential)
    - Can someone understand this WITHOUT watching the full video?
